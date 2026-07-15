@@ -44,15 +44,15 @@ export default function ExportPanel({ layout, displayUnit, totalArea, unit, room
     setExporting(null);
   };
 
-  const fmt = (v) => displayUnit === 'm\u00B2' ? (v * 0.3048).toFixed(1) + ' m' : v.toFixed(1) + ' ft';
-  const fmtArea = (sqft) => displayUnit === 'm\u00B2' ? (sqft * 0.092903).toFixed(1) + ' m\u00B2' : sqft + ' ft\u00B2';
+  const fmt = (v) => displayUnit === 'm²' ? (v * 0.3048).toFixed(1) + ' m' : v.toFixed(1) + ' ft';
+  const fmtArea = (sqft) => displayUnit === 'm²' ? (sqft * 0.092903).toFixed(1) + ' m²' : sqft + ' ft²';
 
   return (
     <div className="export-overlay" onClick={onClose}>
       <div className="export-panel fade-in" onClick={e => e.stopPropagation()}>
         <div className="export-header">
           <h2>Export Floor Plan</h2>
-          <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ fontSize: 18, padding: '2px 8px' }}>\u2715</button>
+          <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ fontSize: 18, padding: '2px 8px' }}>✕</button>
         </div>
 
         <div className="export-body">
@@ -60,7 +60,7 @@ export default function ExportPanel({ layout, displayUnit, totalArea, unit, room
           <div className="export-summary">
             <div className="export-summary-row">
               <span className="export-summary-label">Boundary</span>
-              <span className="export-summary-value">{fmt(layout.boundary.width)} \u00D7 {fmt(layout.boundary.height)}</span>
+              <span className="export-summary-value">{fmt(layout.boundary.width)} × {fmt(layout.boundary.height)}</span>
             </div>
             <div className="export-summary-row">
               <span className="export-summary-label">Total Area</span>
@@ -96,7 +96,7 @@ export default function ExportPanel({ layout, displayUnit, totalArea, unit, room
                   <span className="export-card-desc">Raster image of the 2D canvas</span>
                 </div>
                 {exporting === 'png' && <span className="export-spinner" />}
-                {lastExported === 'png' && <span className="export-check">\u2713</span>}
+                {lastExported === 'png' && <span className="export-check">✓</span>}
               </button>
 
               <button
@@ -116,7 +116,7 @@ export default function ExportPanel({ layout, displayUnit, totalArea, unit, room
                   <span className="export-card-desc">Scalable vector, editable</span>
                 </div>
                 {exporting === 'svg' && <span className="export-spinner" />}
-                {lastExported === 'svg' && <span className="export-check">\u2713</span>}
+                {lastExported === 'svg' && <span className="export-check">✓</span>}
               </button>
 
               <button
@@ -136,7 +136,7 @@ export default function ExportPanel({ layout, displayUnit, totalArea, unit, room
                   <span className="export-card-desc">Layout coordinates for import</span>
                 </div>
                 {exporting === 'json' && <span className="export-spinner" />}
-                {lastExported === 'json' && <span className="export-check">\u2713</span>}
+                {lastExported === 'json' && <span className="export-check">✓</span>}
               </button>
             </div>
           </div>
@@ -164,7 +164,7 @@ export default function ExportPanel({ layout, displayUnit, totalArea, unit, room
                   <span className="export-card-desc">Compact 3D binary, game-ready</span>
                 </div>
                 {exporting === 'glb' && <span className="export-spinner" />}
-                {lastExported === 'glb' && <span className="export-check">\u2713</span>}
+                {lastExported === 'glb' && <span className="export-check">✓</span>}
               </button>
 
               <button
@@ -183,7 +183,7 @@ export default function ExportPanel({ layout, displayUnit, totalArea, unit, room
                   <span className="export-card-desc">Standard 3D format, editable</span>
                 </div>
                 {exporting === 'gltf' && <span className="export-spinner" />}
-                {lastExported === 'gltf' && <span className="export-check">\u2713</span>}
+                {lastExported === 'gltf' && <span className="export-check">✓</span>}
               </button>
 
               <button
@@ -202,7 +202,7 @@ export default function ExportPanel({ layout, displayUnit, totalArea, unit, room
                   <span className="export-card-desc">Universal mesh format</span>
                 </div>
                 {exporting === 'obj' && <span className="export-spinner" />}
-                {lastExported === 'obj' && <span className="export-check">\u2713</span>}
+                {lastExported === 'obj' && <span className="export-check">✓</span>}
               </button>
 
               <button
@@ -221,7 +221,7 @@ export default function ExportPanel({ layout, displayUnit, totalArea, unit, room
                   <span className="export-card-desc">For 3D printing and CAD</span>
                 </div>
                 {exporting === 'stl' && <span className="export-spinner" />}
-                {lastExported === 'stl' && <span className="export-check">\u2713</span>}
+                {lastExported === 'stl' && <span className="export-check">✓</span>}
               </button>
             </div>
           </div>

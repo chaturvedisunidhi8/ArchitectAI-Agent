@@ -293,6 +293,41 @@ function openPlanVariant(totalAreaFt, roomSpecs) {
   return { boundary, rooms: placed };
 }
 
+/**
+ * Custom: a plain uniform grid that gives every room its own cell so nothing
+ * is dropped. It's a clean starting canvas — the user then builds their own
+ * layout by dragging, resizing, swapping and rotating rooms in the editor.
+ */
+function customVariant(totalAreaFt, roomSpecs) {
+  const boundary = computeBoundary(totalAreaFt, 1.3);
+  const wallGap = WALL_THICKNESS_FT;
+  const pad = 0.5;
+
+  const expanded = expandSpecs(roomSpecs);
+  const n = expanded.length;
+  if (n === 0) return { boundary, rooms: [] };
+
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+
+  const cellW = (boundary.width - pad * 2 - (cols - 1) * wallGap) / cols;
+  const cellH = (boundary.height - pad * 2 - (rows - 1) * wallGap) / rows;
+
+  const placed = expanded.map((room, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    return {
+      ...room,
+      x: Math.round((pad + col * (cellW + wallGap)) * 10) / 10,
+      y: Math.round((pad + row * (cellH + wallGap)) * 10) / 10,
+      w: Math.round(cellW * 10) / 10,
+      h: Math.round(cellH * 10) / 10,
+    };
+  });
+
+  return { boundary, rooms: placed };
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -385,6 +420,30 @@ export function generateVariants(totalAreaFt, roomSpecs) {
       console.warn(`Variant "${id}" failed:`, e);
     }
   });
+
+  // Append a "custom" starting layout the user arranges themselves.
+  try {
+    const variant = customVariant(totalAreaFt, roomSpecs);
+    if (variant.rooms.length > 0) {
+      const layout = finalizeLayout(variant, variant.boundary);
+      const totalRoomArea = layout.rooms.reduce((s, r) => s + r.w * r.h, 0);
+      const boundaryArea = layout.boundary.width * layout.boundary.height;
+      results.push({
+        id: 'custom',
+        name: 'Custom Layout',
+        desc: 'Start from a grid, then arrange rooms yourself',
+        isCustom: true,
+        layout,
+        stats: {
+          roomCount: layout.rooms.length,
+          dimensions: `${layout.boundary.width.toFixed(0)} × ${layout.boundary.height.toFixed(0)}`,
+          efficiency: Math.round((totalRoomArea / boundaryArea) * 100),
+        },
+      });
+    }
+  } catch (e) {
+    console.warn('Variant "custom" failed:', e);
+  }
 
   return results;
 }

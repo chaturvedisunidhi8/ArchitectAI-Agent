@@ -40,7 +40,7 @@ export default function StepRoomConfig({
           <div className="area-budget-fill" style={{ width: fillPercent + '%', background: fillColor }} />
         </div>
         <div className="area-budget-footer">
-          <span>{fillPercent.toFixed(1)}% used \u00B7 {selectedCount} rooms</span>
+          <span>{fillPercent.toFixed(1)}% used · {selectedCount} rooms</span>
           <span style={{ color: overBudget ? 'var(--color-danger)' : undefined }}>
             {areaRemaining >= 0
               ? `${areaRemaining} ${displayUnit} remaining`
@@ -52,7 +52,7 @@ export default function StepRoomConfig({
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
         <button className="btn btn-secondary" onClick={onBack} style={{ flex: '0 0 auto' }}>
-          \u2190 Back
+          ← Back
         </button>
         <button
           className="btn btn-primary"
@@ -60,7 +60,7 @@ export default function StepRoomConfig({
           disabled={overBudget || selectedCount === 0}
           style={{ flex: 1 }}
         >
-          Generate Floor Plan \u2192
+          Generate Floor Plan →
         </button>
       </div>
     </div>

@@ -4,10 +4,10 @@ import FloorPlan3D from './FloorPlan3D.jsx';
 
 export default function StepFloorPlan({
   layout, selectedRoomId, onSelectRoom, displayUnit, totalAreaFt,
-  onBack, onSwapRooms, onRegenerate, onMoveRoom, roomSpecs, unit,
+  onEditRooms, onSwapRooms, onRegenerate, onMoveRoom, roomSpecs, unit,
   canUndo, canRedo, onUndo, onRedo,
   onOpenExport, canvasRef, editor, onLoad, onClear,
-  theme, showInsights, onToggleInsights,
+  theme,
 }) {
   const [viewMode, setViewMode] = useState('2d');
 
@@ -74,7 +74,7 @@ export default function StepFloorPlan({
 
         <div className="toolbar-separator" />
 
-        <button className="btn btn-ghost btn-sm" onClick={onBack}>
+        <button className="btn btn-ghost btn-sm" onClick={onEditRooms}>
           Edit Rooms
         </button>
         <button className="btn btn-secondary btn-sm" onClick={onRegenerate}>
