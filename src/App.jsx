@@ -81,6 +81,13 @@ export default function App() {
     setCustomBuilderOpen(false);
   }, []);
 
+  // Reset the builder back to the pristine starting grid. Re-applying the
+  // variant records the reset in history, so it stays undoable.
+  const handleResetCustomBuilder = useCallback(() => {
+    fp.applyVariant(fp.selectedLayoutIndex);
+    fp.setSelectedRoomId(null);
+  }, [fp]);
+
   const handleThemeConfirm = useCallback(() => {
     fp.goNext();
   }, [fp]);
@@ -249,6 +256,7 @@ export default function App() {
             canRedo={fp.canRedo}
             onUndo={fp.undo}
             onRedo={fp.redo}
+            onReset={handleResetCustomBuilder}
             onCancel={handleCancelCustomBuilder}
             onConfirm={handleLayoutConfirm}
           />

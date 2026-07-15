@@ -11,292 +11,203 @@ import { generateWalls } from './geometry.js';
 import { defaultFurnishings } from './furniture.js';
 
 // ---------------------------------------------------------------------------
-// Variant strategies
+// Space-partition primitives
+//
+// Every variant is built from these helpers, which tile a rectangle *exactly*:
+// each room gets a cell whose area is proportional to its target area, cells are
+// flush (shared edges → clean merged interior walls) and — crucially — no room
+// is ever dropped. This is what guarantees that every room the user selected
+// actually shows up in the generated plan.
 // ---------------------------------------------------------------------------
+
+const round1 = (v) => Math.round(v * 10) / 10;
 
 function computeBoundary(totalAreaFt, aspect) {
   const h = Math.sqrt(totalAreaFt / aspect);
   const w = totalAreaFt / h;
-  return { width: Math.round(w * 10) / 10, height: Math.round(h * 10) / 10 };
+  return { width: round1(w), height: round1(h) };
 }
 
+function innerRect(boundary, pad) {
+  return { x: pad, y: pad, w: boundary.width - pad * 2, h: boundary.height - pad * 2 };
+}
+
+function sortedRooms(roomSpecs) {
+  return expandSpecs(roomSpecs).sort((a, b) => b.targetArea - a.targetArea);
+}
+
+// Cut positions along `span` (starting at `start`), split proportionally to
+// `weights`. Returns weights.length + 1 positions; cell i spans [cuts[i],
+// cuts[i+1]]. Consecutive cells share an exact edge — no gaps, no overlaps.
+function cutPositions(start, span, weights) {
+  const total = weights.reduce((a, b) => a + b, 0) || 1;
+  const positions = [round1(start)];
+  let acc = 0;
+  for (let i = 0; i < weights.length; i++) {
+    acc += weights[i];
+    positions.push(round1(start + (span * acc) / total));
+  }
+  return positions;
+}
+
+// Lay a set of rooms across a rectangle in a single line, sized by area.
+//   dir 'row' → rooms side by side, widths ∝ area, each spanning the full height.
+//   dir 'col' → rooms stacked,      heights ∝ area, each spanning the full width.
+function fillLine(rooms, rect, dir) {
+  const weights = rooms.map(r => r.targetArea);
+  if (dir === 'row') {
+    const xs = cutPositions(rect.x, rect.w, weights);
+    return rooms.map((r, i) => ({
+      ...r, x: xs[i], y: round1(rect.y), w: round1(xs[i + 1] - xs[i]), h: round1(rect.h),
+    }));
+  }
+  const ys = cutPositions(rect.y, rect.h, weights);
+  return rooms.map((r, i) => ({
+    ...r, x: round1(rect.x), y: ys[i], w: round1(rect.w), h: round1(ys[i + 1] - ys[i]),
+  }));
+}
+
+// Distribute rooms into `bandCount` groups balanced by area (longest-processing-
+// time greedy) so bands come out a similar size. `rooms` should be largest-first.
+// Empty bands are dropped, so this never returns more bands than rooms.
+function balanceBands(rooms, bandCount) {
+  const bands = Array.from({ length: Math.max(1, bandCount) }, () => ({ rooms: [], area: 0 }));
+  rooms.forEach(room => {
+    let target = bands[0];
+    for (const b of bands) if (b.area < target.area) target = b;
+    target.rooms.push(room);
+    target.area += room.targetArea;
+  });
+  return bands.filter(b => b.rooms.length > 0);
+}
+
+// Fill a rectangle with rooms in `rowCount` stacked rows: each row's height is
+// proportional to its rooms' area, and within a row rooms fill the full width.
+function fillRows(rooms, rect, rowCount) {
+  const bands = balanceBands(rooms, rowCount);
+  const ys = cutPositions(rect.y, rect.h, bands.map(b => b.area));
+  const placed = [];
+  bands.forEach((band, i) => {
+    const rowRooms = band.rooms.slice().sort((a, b) => b.targetArea - a.targetArea);
+    placed.push(...fillLine(rowRooms, { x: rect.x, y: ys[i], w: rect.w, h: ys[i + 1] - ys[i] }, 'row'));
+  });
+  return placed;
+}
+
+// Fill a rectangle with rooms in `colCount` side-by-side columns: each column's
+// width is proportional to its rooms' area, and within a column rooms fill the
+// full height.
+function fillColumns(rooms, rect, colCount) {
+  const bands = balanceBands(rooms, colCount);
+  const xs = cutPositions(rect.x, rect.w, bands.map(b => b.area));
+  const placed = [];
+  bands.forEach((band, i) => {
+    const colRooms = band.rooms.slice().sort((a, b) => b.targetArea - a.targetArea);
+    placed.push(...fillLine(colRooms, { x: xs[i], y: rect.y, w: xs[i + 1] - xs[i], h: rect.h }, 'col'));
+  });
+  return placed;
+}
+
+// ---------------------------------------------------------------------------
+// Variant strategies — each tiles the whole footprint, so no room is dropped.
+// ---------------------------------------------------------------------------
+
 /**
- * Variant 1: Shelf Packing (existing algorithm)
- * Rooms packed in rows, stretched to fill width.
+ * Variant 1: Shelf Layout — rooms in horizontal rows, each stretched to fill
+ * the full width.
  */
 function shelfVariant(totalAreaFt, roomSpecs) {
   const boundary = computeBoundary(totalAreaFt, 1.35);
-  const wallGap = WALL_THICKNESS_FT;
-  const pad = 0.3;
-
-  const expanded = expandSpecs(roomSpecs);
-  expanded.sort((a, b) => b.targetArea - a.targetArea);
-
-  const totalRoomArea = expanded.reduce((s, r) => s + r.targetArea, 0);
-  const wallAreaEstimate = (boundary.width + boundary.height) * wallGap * 2;
-  const usableArea = (boundary.width * boundary.height) - wallAreaEstimate;
-  const areaScale = Math.min(1.1, Math.sqrt(Math.max(0.5, usableArea / totalRoomArea)));
-
-  const placed = [];
-  let shelfY = pad;
-  let shelfHeight = 0;
-  let cursorX = pad;
-  let shelfRow = [];
-  const maxW = boundary.width - pad * 2;
-  const maxH = boundary.height - pad * 2;
-
-  function flushShelf() {
-    if (shelfRow.length === 0) return;
-    const rowWidth = boundary.width - pad * 2;
-    const actualUsed = shelfRow.reduce((s, r) => s + r.w, 0) + (shelfRow.length - 1) * wallGap;
-    const slack = rowWidth - actualUsed;
-    if (slack > 0.5 && shelfRow.length > 1) {
-      const stretchFactor = rowWidth / actualUsed;
-      let ex = pad;
-      shelfRow.forEach(r => {
-        const newW = r.w * stretchFactor;
-        const stretch = newW / r.w;
-        const newH = r.h * stretch;
-        if (shelfY + newH <= maxH + pad) {
-          r.w = Math.round(newW * 10) / 10;
-          r.h = Math.round(Math.min(newH, maxH - shelfY + pad) * 10) / 10;
-        }
-        r.x = Math.round(ex * 10) / 10;
-        ex += r.w + wallGap;
-      });
-    }
-    shelfRow = [];
-  }
-
-  expanded.forEach((room) => {
-    const scaledArea = room.targetArea * areaScale;
-    const aspect = room.aspectTarget;
-    let rw, rh;
-    if (scaledArea >= 120) {
-      rh = Math.sqrt(scaledArea / aspect);
-      rw = scaledArea / rh;
-      rh = Math.max(7, Math.min(16, rh));
-      rw = Math.max(6, Math.min(maxW * 0.6, rw));
-    } else if (scaledArea >= 40) {
-      rh = Math.sqrt(scaledArea / aspect);
-      rw = scaledArea / rh;
-      rh = Math.max(4, Math.min(10, rh));
-      rw = Math.max(4, Math.min(maxW * 0.5, rw));
-    } else {
-      rh = Math.sqrt(scaledArea / 1.0);
-      rw = scaledArea / rh;
-      rh = Math.max(3, Math.min(6, rh));
-      rw = Math.max(3, Math.min(maxW * 0.4, rw));
-    }
-    if (cursorX + rw > maxW + 0.5) {
-      flushShelf();
-      cursorX = pad;
-      shelfY += shelfHeight + wallGap;
-      shelfHeight = 0;
-    }
-    if (shelfY + rh > maxH + pad) {
-      rh = maxH + pad - shelfY;
-      rw = scaledArea / rh;
-      if (rw < 2 || rh < 2) return;
-    }
-    const roomObj = {
-      ...room,
-      x: Math.round(cursorX * 10) / 10,
-      y: Math.round(shelfY * 10) / 10,
-      w: Math.round(rw * 10) / 10,
-      h: Math.round(rh * 10) / 10,
-    };
-    placed.push(roomObj);
-    shelfRow.push(roomObj);
-    cursorX += rw + wallGap;
-    shelfHeight = Math.max(shelfHeight, rh);
-  });
-  flushShelf();
-
-  return { boundary, rooms: placed };
+  const rooms = sortedRooms(roomSpecs);
+  const rowCount = Math.max(1, Math.round(Math.sqrt(rooms.length)));
+  return { boundary, rooms: fillRows(rooms, innerRect(boundary, 0.3), rowCount) };
 }
 
 /**
- * Variant 2: Grid Layout
- * Rooms arranged in a 2-column grid, like a corridor plan.
+ * Variant 2: Grid Layout — a compact two-column grid.
  */
 function gridVariant(totalAreaFt, roomSpecs) {
   const boundary = computeBoundary(totalAreaFt, 1.2);
-  const wallGap = WALL_THICKNESS_FT;
-  const pad = 0.5;
-
-  const expanded = expandSpecs(roomSpecs);
-  expanded.sort((a, b) => b.targetArea - a.targetArea);
-
-  const totalRoomArea = expanded.reduce((s, r) => s + r.targetArea, 0);
-  const usableArea = (boundary.width - pad * 2) * (boundary.height - pad * 2);
-  const areaScale = Math.min(1.05, Math.sqrt(Math.max(0.5, usableArea / totalRoomArea)));
-
-  // Split into two columns
-  const mid = Math.ceil(expanded.length / 2);
-  const leftCol = expanded.slice(0, mid);
-  const rightCol = expanded.slice(mid);
-
-  const colWidth = (boundary.width - pad * 2 - wallGap) / 2;
-  const placed = [];
-
-  function placeColumn(col, startX) {
-    let cursorY = pad;
-    col.forEach(room => {
-      const scaledArea = room.targetArea * areaScale;
-      const rw = Math.min(colWidth, Math.max(4, scaledArea / 6));
-      const rh = Math.max(3, Math.min(14, scaledArea / rw));
-      if (cursorY + rh > boundary.height - pad) return;
-      placed.push({
-        ...room,
-        x: Math.round(startX * 10) / 10,
-        y: Math.round(cursorY * 10) / 10,
-        w: Math.round(rw * 10) / 10,
-        h: Math.round(rh * 10) / 10,
-      });
-      cursorY += rh + wallGap;
-    });
-  }
-
-  placeColumn(leftCol, pad);
-  placeColumn(rightCol, pad + colWidth + wallGap);
-
-  return { boundary, rooms: placed };
+  const rooms = sortedRooms(roomSpecs);
+  const colCount = rooms.length <= 1 ? 1 : 2;
+  return { boundary, rooms: fillColumns(rooms, innerRect(boundary, 0.5), colCount) };
 }
 
 /**
- * Variant 3: Central Corridor
- * Rooms arranged on two sides of a central hallway.
+ * Variant 3: Corridor Plan — rooms on two sides of a central hallway.
  */
 function corridorVariant(totalAreaFt, roomSpecs) {
   const boundary = computeBoundary(totalAreaFt, 1.5);
-  const wallGap = WALL_THICKNESS_FT;
-  const pad = 0.4;
-  const corridorWidth = 3.5;
+  const rooms = sortedRooms(roomSpecs);
+  const rect = innerRect(boundary, 0.4);
 
-  const expanded = expandSpecs(roomSpecs);
-  expanded.sort((a, b) => b.targetArea - a.targetArea);
-
-  const totalRoomArea = expanded.reduce((s, r) => s + r.targetArea, 0);
-  const corridorArea = corridorWidth * (boundary.height - pad * 2);
-  const availableArea = (boundary.width - pad * 2) * (boundary.height - pad * 2) - corridorArea;
-  const areaScale = Math.min(1.0, Math.sqrt(Math.max(0.5, availableArea / totalRoomArea)));
-
-  // Split rooms: larger ones on left, smaller on right
-  const leftRooms = [];
-  const rightRooms = [];
-  expanded.forEach((room, i) => {
-    if (i % 2 === 0) leftRooms.push(room);
-    else rightRooms.push(room);
-  });
-
-  const leftWidth = (boundary.width - pad * 2 - corridorWidth - wallGap) / 2;
-  const rightWidth = leftWidth;
-  const rightStart = boundary.width - pad - rightWidth;
-  const placed = [];
-
-  function placeSide(rooms, startX, width) {
-    let cursorY = pad;
-    rooms.forEach(room => {
-      const scaledArea = room.targetArea * areaScale;
-      const rw = Math.min(width, Math.max(3, scaledArea / 5));
-      const rh = Math.max(3, Math.min(12, scaledArea / rw));
-      if (cursorY + rh > boundary.height - pad) return;
-      placed.push({
-        ...room,
-        x: Math.round(startX * 10) / 10,
-        y: Math.round(cursorY * 10) / 10,
-        w: Math.round(rw * 10) / 10,
-        h: Math.round(rh * 10) / 10,
-      });
-      cursorY += rh + wallGap;
-    });
+  // A lone room doesn't need a corridor.
+  if (rooms.length < 2) {
+    return { boundary, rooms: fillColumns(rooms, rect, 1) };
   }
 
-  placeSide(leftRooms, pad, leftWidth);
-  placeSide(rightRooms, rightStart, rightWidth);
+  const bands = balanceBands(rooms, 2);
+  const corridorWidth = Math.min(4, rect.w * 0.12);
+  const sideWidth = (rect.w - corridorWidth) / 2;
+  const placed = [];
+
+  const left = bands[0].rooms.slice().sort((a, b) => b.targetArea - a.targetArea);
+  placed.push(...fillLine(left, { x: rect.x, y: rect.y, w: sideWidth, h: rect.h }, 'col'));
+
+  if (bands[1]) {
+    const right = bands[1].rooms.slice().sort((a, b) => b.targetArea - a.targetArea);
+    placed.push(...fillLine(right, { x: rect.x + sideWidth + corridorWidth, y: rect.y, w: sideWidth, h: rect.h }, 'col'));
+  }
 
   return { boundary, rooms: placed };
 }
 
 /**
- * Variant 4: Open Plan
- * Living/dining/kitchen merged into a large open area, bedrooms private.
+ * Variant 4: Open Plan — living/dining/kitchen share a wide open band along the
+ * bottom; the private rooms (bedrooms, bath, etc.) run along the top.
  */
 function openPlanVariant(totalAreaFt, roomSpecs) {
   const boundary = computeBoundary(totalAreaFt, 1.3);
-  const wallGap = WALL_THICKNESS_FT;
-  const pad = 0.4;
+  const rect = innerRect(boundary, 0.4);
+  const expanded = sortedRooms(roomSpecs);
 
-  const expanded = expandSpecs(roomSpecs);
-  expanded.sort((a, b) => b.targetArea - a.targetArea);
-
-  const totalRoomArea = expanded.reduce((s, r) => s + r.targetArea, 0);
-  const usableArea = (boundary.width - pad * 2) * (boundary.height - pad * 2);
-  const areaScale = Math.min(1.05, Math.sqrt(Math.max(0.5, usableArea / totalRoomArea)));
-
-  // Separate public (living, dining, kitchen) vs private (bedroom, bathroom, etc.)
   const publicTypes = new Set(['living', 'dining', 'kitchen']);
   const publicRooms = expanded.filter(r => publicTypes.has(r.type));
   const privateRooms = expanded.filter(r => !publicTypes.has(r.type));
 
-  const placed = [];
-  const maxH = boundary.height - pad * 2;
-  const maxW = boundary.width - pad * 2;
-
-  // Place public rooms in the bottom half (larger, open)
-  const publicHeight = maxH * 0.55;
-  let cursorX = pad;
-  const publicWidth = maxW;
-  publicRooms.forEach(room => {
-    const scaledArea = room.targetArea * areaScale * 1.2; // Give public rooms more space
-    const rw = Math.max(4, Math.min(publicWidth / publicRooms.length * 1.5, scaledArea / publicHeight * 0.8));
-    const rh = Math.max(4, publicHeight);
-    if (cursorX + rw > pad + publicWidth + 0.5) return;
-    placed.push({
-      ...room,
-      x: Math.round(cursorX * 10) / 10,
-      y: Math.round((boundary.height - pad - publicHeight) * 10) / 10,
-      w: Math.round(rw * 10) / 10,
-      h: Math.round(rh * 10) / 10,
-    });
-    cursorX += rw + wallGap;
-  });
-
-  // Stretch last public room to fill width
-  if (placed.length > 0 && publicRooms.length > 0) {
-    const lastPub = placed[placed.length - 1];
-    const targetX = pad + publicWidth;
-    if (lastPub.x + lastPub.w < targetX - 1) {
-      lastPub.w = Math.round((targetX - lastPub.x) * 10) / 10;
-    }
+  // If the split is one-sided there's no "open vs private" story to tell — fall
+  // back to plain rows so the whole footprint is still used.
+  if (publicRooms.length === 0 || privateRooms.length === 0) {
+    const rowCount = Math.max(1, Math.round(Math.sqrt(expanded.length)));
+    return { boundary, rooms: fillRows(expanded, rect, rowCount) };
   }
 
-  // Place private rooms in the top half
-  const privateHeight = maxH * 0.4;
-  let privCursorX = pad;
-  privateRooms.forEach(room => {
-    const scaledArea = room.targetArea * areaScale;
-    const rw = Math.max(3, Math.min(maxW * 0.5, scaledArea / privateHeight * 0.8));
-    const rh = Math.max(3, privateHeight);
-    if (privCursorX + rw > pad + maxW + 0.5) return;
-    placed.push({
-      ...room,
-      x: Math.round(privCursorX * 10) / 10,
-      y: Math.round(pad * 10) / 10,
-      w: Math.round(rw * 10) / 10,
-      h: Math.round(rh * 10) / 10,
-    });
-    privCursorX += rw + wallGap;
-  });
+  const publicArea = publicRooms.reduce((s, r) => s + r.targetArea, 0);
+  const totalArea = expanded.reduce((s, r) => s + r.targetArea, 0) || 1;
+  const publicFrac = Math.max(0.35, Math.min(0.6, publicArea / totalArea));
+  const publicH = rect.h * publicFrac;
+  const topH = rect.h - publicH;
+
+  const placed = [];
+  // Private rooms across the top (two rows when there are several, to keep them
+  // from becoming thin slivers).
+  const privRows = privateRooms.length >= 4 ? 2 : 1;
+  placed.push(...fillRows(privateRooms, { x: rect.x, y: rect.y, w: rect.w, h: topH }, privRows));
+  // Public rooms across the bottom, open and wide.
+  placed.push(...fillLine(publicRooms, { x: rect.x, y: rect.y + topH, w: rect.w, h: publicH }, 'row'));
 
   return { boundary, rooms: placed };
 }
 
 /**
- * Custom: a plain uniform grid that gives every room its own cell so nothing
- * is dropped. It's a clean starting canvas — the user then builds their own
- * layout by dragging, resizing, swapping and rotating rooms in the editor.
+ * Custom: a clean grid that gives every room its own cell so nothing is
+ * dropped, and — crucially — leaves no empty space. Rooms are laid out in rows
+ * of uniform height; the last row usually holds fewer rooms than a full row, so
+ * its cells are sized by how many rooms it actually contains, stretching them to
+ * fill the full width. Without this, a 7-room plan on a 3×3 grid would leave two
+ * blank cells trailing the final row. It's a clean starting canvas — the user
+ * then builds their own layout by dragging, resizing, swapping and rotating
+ * rooms in the editor.
  */
 function customVariant(totalAreaFt, roomSpecs) {
   const boundary = computeBoundary(totalAreaFt, 1.3);
@@ -310,18 +221,21 @@ function customVariant(totalAreaFt, roomSpecs) {
   const cols = Math.ceil(Math.sqrt(n));
   const rows = Math.ceil(n / cols);
 
-  const cellW = (boundary.width - pad * 2 - (cols - 1) * wallGap) / cols;
   const cellH = (boundary.height - pad * 2 - (rows - 1) * wallGap) / rows;
 
   const placed = expanded.map((room, i) => {
-    const col = i % cols;
     const row = Math.floor(i / cols);
+    const col = i % cols;
+    // How many rooms actually live in this row — the last row may be short, so
+    // its cells widen to fill the footprint instead of leaving a gap.
+    const roomsInRow = Math.min(cols, n - row * cols);
+    const cellW = (boundary.width - pad * 2 - (roomsInRow - 1) * wallGap) / roomsInRow;
     return {
       ...room,
-      x: Math.round((pad + col * (cellW + wallGap)) * 10) / 10,
-      y: Math.round((pad + row * (cellH + wallGap)) * 10) / 10,
-      w: Math.round(cellW * 10) / 10,
-      h: Math.round(cellH * 10) / 10,
+      x: round1(pad + col * (cellW + wallGap)),
+      y: round1(pad + row * (cellH + wallGap)),
+      w: round1(cellW),
+      h: round1(cellH),
     };
   });
 

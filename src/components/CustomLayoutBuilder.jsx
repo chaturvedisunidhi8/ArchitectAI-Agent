@@ -12,7 +12,7 @@ export default function CustomLayoutBuilder({
   layout, selectedRoomId, onSelectRoom, displayUnit, totalAreaFt,
   onMoveRoom, onSwapRooms, onEditRoom, onRotateRoom,
   canUndo, canRedo, onUndo, onRedo,
-  onCancel, onConfirm,
+  onReset, onCancel, onConfirm,
 }) {
   if (!layout) return null;
 
@@ -34,6 +34,7 @@ export default function CustomLayoutBuilder({
         <button className="btn btn-ghost btn-sm" onClick={onUndo} disabled={!canUndo} title="Undo">↩</button>
         <button className="btn btn-ghost btn-sm" onClick={onRedo} disabled={!canRedo} title="Redo">↪</button>
         <div className="toolbar-separator" />
+        <button className="btn btn-secondary btn-sm" onClick={onReset} title="Restore the original starting layout">↺ Reset Layout</button>
         <button className="btn btn-ghost btn-sm" onClick={onCancel}>← Layouts</button>
         <button className="btn btn-primary btn-sm" onClick={onConfirm}>Use This Layout →</button>
       </div>
