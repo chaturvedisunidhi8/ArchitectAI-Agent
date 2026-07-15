@@ -20,7 +20,7 @@ export default function RoomCard({ spec, displayUnit, onToggle, onAreaChange, on
       </div>
       {isSelected && (
         <div className="room-count">
-          <button onClick={onDecrement} aria-label={`Decrease ${spec.label}`}>\u2212</button>
+          <button onClick={onDecrement} aria-label={`Decrease ${spec.label}`}>−</button>
           <span>{spec.count}</span>
           <button onClick={onIncrement} aria-label={`Increase ${spec.label}`}>+</button>
         </div>

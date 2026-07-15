@@ -3,9 +3,9 @@ import UnitToggle from './UnitToggle.jsx';
 import { SQFT_TO_SQM, SQM_TO_SQFT } from '../engine/constants.js';
 
 export default function StepAreaInput({ totalArea, setTotalArea, unit, setUnit, onNext }) {
-  const displayUnit = unit === 'sqft' ? 'ft\u00B2' : 'm\u00B2';
+  const displayUnit = unit === 'sqft' ? 'ft²' : 'm²';
   const lengthUnit = unit === 'sqft' ? 'ft' : 'm';
-  const conversionUnit = unit === 'sqft' ? 'm\u00B2' : 'ft\u00B2';
+  const conversionUnit = unit === 'sqft' ? 'm²' : 'ft²';
   const convertFactor = unit === 'sqft' ? SQFT_TO_SQM : SQM_TO_SQFT;
 
   const converted = (totalArea * convertFactor).toFixed(unit === 'sqft' ? 1 : 0);
@@ -98,7 +98,7 @@ export default function StepAreaInput({ totalArea, setTotalArea, unit, setUnit, 
               <div className="input-unit">{lengthUnit}</div>
             </div>
           </div>
-          <div style={{ alignSelf: 'center', color: 'var(--color-text-muted)', fontSize: 14, paddingTop: 18 }}>\u00D7</div>
+          <div style={{ alignSelf: 'center', color: 'var(--color-text-muted)', fontSize: 14, paddingTop: 18 }}>×</div>
           <div className="input-group" style={{ flex: 1 }}>
             <label className="input-label">Height</label>
             <div className="input-with-unit">
@@ -116,7 +116,7 @@ export default function StepAreaInput({ totalArea, setTotalArea, unit, setUnit, 
       )}
 
       <div className="conversion-hint">
-        \u2248 {converted} {conversionUnit}
+        ≈ {converted} {conversionUnit}
       </div>
 
       <div className="preview-box">
@@ -138,20 +138,20 @@ export default function StepAreaInput({ totalArea, setTotalArea, unit, setUnit, 
           {useDimensions && (
             <text x="100" y="72" textAnchor="middle" fill="var(--color-text-muted)"
               fontFamily="var(--font-mono)" fontSize="9">
-              {dims.w} {lengthUnit} \u00D7 {dims.h} {lengthUnit}
+              {dims.w} {lengthUnit} × {dims.h} {lengthUnit}
             </text>
           )}
           {!useDimensions && (
             <text x="100" y="72" textAnchor="middle" fill="var(--color-text-muted)"
               fontFamily="var(--font-mono)" fontSize="9">
-              \u2248 {previewW.toFixed(1)} \u00D7 {previewH.toFixed(1)} {lengthUnit}
+              ≈ {previewW.toFixed(1)} × {previewH.toFixed(1)} {lengthUnit}
             </text>
           )}
         </svg>
       </div>
 
       <button className="btn btn-primary btn-full" onClick={onNext} style={{ marginTop: 20 }}>
-        Configure Rooms \u2192
+        Configure Rooms →
       </button>
     </div>
   );

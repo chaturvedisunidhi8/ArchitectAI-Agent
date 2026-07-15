@@ -8,19 +8,24 @@ import StepRoomConfig from './components/StepRoomConfig.jsx';
 import StepLayoutSelect from './components/StepLayoutSelect.jsx';
 import StepThemeSelect from './components/StepThemeSelect.jsx';
 import StepFloorPlan from './components/StepFloorPlan.jsx';
+import CustomLayoutBuilder from './components/CustomLayoutBuilder.jsx';
 import ExportPanel from './components/ExportPanel.jsx';
-import InsightsPanel from './components/InsightsPanel.jsx';
 import { getRoomType } from './engine/constants.js';
 
 export default function App() {
   const fp = useFloorPlan();
   const [showExport, setShowExport] = useState(false);
-  const [showInsights, setShowInsights] = useState(false);
+  const [customBuilderOpen, setCustomBuilderOpen] = useState(false);
   const canvasRef = useRef(null);
 
   useEffect(() => {
     fp.loadFromLocal();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The custom builder only lives on the layout step; close it on any nav away.
+  useEffect(() => {
+    if (fp.step !== 3) setCustomBuilderOpen(false);
+  }, [fp.step]);
 
   const editor = useMemo(() => ({
     addFurnishing: fp.addFurnishing,
@@ -53,9 +58,28 @@ export default function App() {
   }, [fp]);
 
   const handleLayoutConfirm = useCallback(() => {
+    // When building a custom layout, fp.layout already holds the user's
+    // arranged rooms — don't re-apply the pristine grid over their work.
+    if (customBuilderOpen) {
+      setCustomBuilderOpen(false);
+      fp.goNext();
+      return;
+    }
     fp.applyVariant(fp.selectedLayoutIndex);
     fp.goNext();
+  }, [fp, customBuilderOpen]);
+
+  // Open the custom-layout builder: apply the plain grid as a starting canvas,
+  // then let the user arrange it themselves.
+  const handleOpenCustomBuilder = useCallback((index) => {
+    fp.setSelectedLayoutIndex(index);
+    fp.applyVariant(index);
+    setCustomBuilderOpen(true);
   }, [fp]);
+
+  const handleCancelCustomBuilder = useCallback(() => {
+    setCustomBuilderOpen(false);
+  }, []);
 
   const handleThemeConfirm = useCallback(() => {
     fp.goNext();
@@ -67,6 +91,12 @@ export default function App() {
 
   const handleStartManual = useCallback(() => {
     fp.setStep(1);
+  }, [fp]);
+
+  // "Edit Rooms" jumps back to the Rooms step so room selection/areas can be
+  // changed; regenerating from there produces fresh, dynamic layouts.
+  const handleEditRooms = useCallback(() => {
+    fp.setStep(2);
   }, [fp]);
 
   return (
@@ -126,6 +156,7 @@ export default function App() {
               variants={fp.layoutVariants}
               selectedIndex={fp.selectedLayoutIndex}
               onSelect={fp.setSelectedLayoutIndex}
+              onCustomize={handleOpenCustomBuilder}
               onConfirm={handleLayoutConfirm}
               onBack={fp.goBack}
             />
@@ -193,9 +224,6 @@ export default function App() {
               )}
 
               <div className="sidebar-actions" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <button className="btn btn-secondary btn-full btn-sm" onClick={() => setShowInsights(v => !v)}>
-                  {showInsights ? 'Hide' : 'Show'} AI Insights
-                </button>
                 <button className="btn btn-secondary btn-full btn-sm" onClick={() => fp.setStep(0)}>
                   Start Over
                 </button>
@@ -206,14 +234,32 @@ export default function App() {
       </div>
 
       <div className="main-area">
-        {fp.step === 5 ? (
+        {customBuilderOpen && fp.step === 3 && fp.layout ? (
+          <CustomLayoutBuilder
+            layout={fp.layout}
+            selectedRoomId={fp.selectedRoomId}
+            onSelectRoom={fp.setSelectedRoomId}
+            displayUnit={fp.displayUnit}
+            totalAreaFt={fp.totalAreaFt}
+            onMoveRoom={handleMoveRoom}
+            onSwapRooms={handleSwapRooms}
+            onEditRoom={fp.editRoom}
+            onRotateRoom={fp.rotateRoom}
+            canUndo={fp.canUndo}
+            canRedo={fp.canRedo}
+            onUndo={fp.undo}
+            onRedo={fp.redo}
+            onCancel={handleCancelCustomBuilder}
+            onConfirm={handleLayoutConfirm}
+          />
+        ) : fp.step === 5 ? (
           <StepFloorPlan
             layout={fp.layout}
             selectedRoomId={fp.selectedRoomId}
             onSelectRoom={fp.setSelectedRoomId}
             displayUnit={fp.displayUnit}
             totalAreaFt={fp.totalAreaFt}
-            onBack={fp.goBack}
+            onEditRooms={handleEditRooms}
             onSwapLayout={handleSwapLayout}
             onSwapRooms={handleSwapRooms}
             onRegenerate={handleRegenerate}
@@ -230,8 +276,6 @@ export default function App() {
             onLoad={fp.loadFromLocal}
             onClear={fp.clearLocal}
             theme={fp.selectedTheme}
-            showInsights={showInsights}
-            onToggleInsights={() => setShowInsights(v => !v)}
           />
         ) : (
           <div className="empty-state">
@@ -308,15 +352,6 @@ export default function App() {
           canvasRef={canvasRef}
           theme={fp.selectedTheme}
           onClose={() => setShowExport(false)}
-        />
-      )}
-
-      {showInsights && fp.step === 5 && fp.layout && (
-        <InsightsPanel
-          layout={fp.layout}
-          style={fp.extractedStyle}
-          direction={fp.extractedDirection}
-          onClose={() => setShowInsights(false)}
         />
       )}
     </div>
