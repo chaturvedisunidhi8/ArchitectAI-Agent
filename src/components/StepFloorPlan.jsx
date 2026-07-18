@@ -77,9 +77,11 @@ export default function StepFloorPlan({
         <button className="btn btn-ghost btn-sm" onClick={onEditRooms}>
           Edit Rooms
         </button>
-        <button className="btn btn-secondary btn-sm" onClick={onRegenerate}>
-          Re-layout
-        </button>
+        {!layout.isCustom && (
+          <button className="btn btn-secondary btn-sm" onClick={onRegenerate}>
+            Re-layout
+          </button>
+        )}
         <div className="toolbar-separator" />
         <button className="btn btn-primary btn-sm" onClick={onOpenExport}>
           ↓ Download
