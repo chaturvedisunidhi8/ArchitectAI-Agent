@@ -340,6 +340,9 @@ export function generateVariants(totalAreaFt, roomSpecs) {
     const variant = customVariant(totalAreaFt, roomSpecs);
     if (variant.rooms.length > 0) {
       const layout = finalizeLayout(variant, variant.boundary);
+      // Tag the layout so the final view can tell it's user-arranged and hide
+      // Re-layout (regenerating would discard the custom arrangement).
+      layout.isCustom = true;
       const totalRoomArea = layout.rooms.reduce((s, r) => s + r.w * r.h, 0);
       const boundaryArea = layout.boundary.width * layout.boundary.height;
       results.push({
