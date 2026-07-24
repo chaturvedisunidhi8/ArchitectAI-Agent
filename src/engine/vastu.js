@@ -26,10 +26,10 @@ const VASTU_RULES = [
     name: 'Kitchen Placement',
     description: 'Kitchen should be in the South-East or East',
     check: (layout) => {
-      const kitchen = layout.rooms.find(r => r.type === 'kitchen');
+      const kitchen = layout.rooms.find(r => (r.roomType || r.type) === 'kitchen');
       if (!kitchen) return { pass: null, note: 'No kitchen found' };
-      const cx = kitchen.x + kitchen.w / 2;
-      const cy = kitchen.y + kitchen.h / 2;
+      const cx = kitchen.centroid ? kitchen.centroid[0] : kitchen.x + kitchen.w / 2;
+      const cy = kitchen.centroid ? kitchen.centroid[1] : kitchen.y + kitchen.h / 2;
       const bw = layout.boundary.width;
       const bh = layout.boundary.height;
       // South-East: x > 60% width, y < 40% height (in plan coords, top is south)
@@ -46,10 +46,10 @@ const VASTU_RULES = [
     name: 'Master Bedroom',
     description: 'Master bedroom should be in the South-West',
     check: (layout) => {
-      const master = layout.rooms.find(r => r.type === 'bedroom');
+      const master = layout.rooms.find(r => (r.roomType || r.type) === 'bedroom');
       if (!master) return { pass: null, note: 'No bedroom found' };
-      const cx = master.x + master.w / 2;
-      const cy = master.y + master.h / 2;
+      const cx = master.centroid ? master.centroid[0] : master.x + master.w / 2;
+      const cy = master.centroid ? master.centroid[1] : master.y + master.h / 2;
       const bw = layout.boundary.width;
       const bh = layout.boundary.height;
       const isSW = cx > bw * 0.5 && cy > bh * 0.5;
@@ -64,13 +64,13 @@ const VASTU_RULES = [
     name: 'Bathroom Placement',
     description: 'Bathrooms should be in the North-West or West',
     check: (layout) => {
-      const bathrooms = layout.rooms.filter(r => r.type === 'bathroom');
+      const bathrooms = layout.rooms.filter(r => (r.roomType || r.type) === 'bathroom');
       if (bathrooms.length === 0) return { pass: null, note: 'No bathroom found' };
       const bw = layout.boundary.width;
       const bh = layout.boundary.height;
       const badPositions = bathrooms.filter(b => {
-        const cx = b.x + b.w / 2;
-        const cy = b.y + b.h / 2;
+        const cx = b.centroid ? b.centroid[0] : b.x + b.w / 2;
+        const cy = b.centroid ? b.centroid[1] : b.y + b.h / 2;
         // Bad: center of house, or South-West
         return (cx > bw * 0.3 && cx < bw * 0.7 && cy > bh * 0.3 && cy < bh * 0.7);
       });
@@ -87,10 +87,10 @@ const VASTU_RULES = [
     name: 'Pooja Room',
     description: 'Pooja/prayer room should be in the North-East',
     check: (layout) => {
-      const pooja = layout.rooms.find(r => r.type === 'pooja');
+      const pooja = layout.rooms.find(r => (r.roomType || r.type) === 'pooja');
       if (!pooja) return { pass: null, note: 'No pooja room specified' };
-      const cx = pooja.x + pooja.w / 2;
-      const cy = pooja.y + pooja.h / 2;
+      const cx = pooja.centroid ? pooja.centroid[0] : pooja.x + pooja.w / 2;
+      const cy = pooja.centroid ? pooja.centroid[1] : pooja.y + pooja.h / 2;
       const bw = layout.boundary.width;
       const bh = layout.boundary.height;
       const isNE = cx < bw * 0.5 && cy < bh * 0.5;
@@ -105,7 +105,7 @@ const VASTU_RULES = [
     name: 'Staircase',
     description: 'Staircase should be in the South, West, or South-West',
     check: (layout) => {
-      const stairs = layout.rooms.find(r => r.type === 'staircase' || (r.furnishings || []).some(f => f.kind === 'staircase'));
+      const stairs = layout.rooms.find(r => (r.roomType || r.type) === 'staircase' || (r.furnishings || []).some(f => f.kind === 'staircase'));
       // No strict check if no staircase specified
       return { pass: null, note: 'Staircase placement rules apply for multi-floor homes' };
     },
@@ -121,9 +121,10 @@ const VASTU_RULES = [
       const cy = bh / 2;
       const margin = 2;
       const centerBlocked = layout.rooms.some(r => {
-        if (r.type === 'bathroom' || r.type === 'store') {
-          const rcx = r.x + r.w / 2;
-          const rcy = r.y + r.h / 2;
+        const rt = r.roomType || r.type;
+        if (rt === 'bathroom' || rt === 'store') {
+          const rcx = r.centroid ? r.centroid[0] : r.x + r.w / 2;
+          const rcy = r.centroid ? r.centroid[1] : r.y + r.h / 2;
           return Math.abs(rcx - cx) < margin && Math.abs(rcy - cy) < margin;
         }
         return false;

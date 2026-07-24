@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   CEILING_HEIGHT_FT, FLOOR_SLAB_FT, CEILING_SLAB_FT, ROOF_SLAB_FT,
-  PARAPET_HEIGHT_FT, WALL_THICKNESS_FT, DOOR_HEIGHT_FT,
+  PARAPET_HEIGHT_FT, DOOR_HEIGHT_FT,
   WINDOW_SILL_FT, WINDOW_HEIGHT_FT,
 } from './constants.js';
 import { defaultFurnishings } from './furniture.js';
@@ -186,13 +186,33 @@ function buildFloors(rooms, mats) {
   group.name = 'Floors';
   rooms.forEach((room) => {
     const mat = floorMaterialFor(room.type, mats, room.floorType);
-    const geo = new THREE.BoxGeometry(room.w, FLOOR_SLAB_FT, room.h);
     const ft = room.floorType || room.type;
     const scale = ft === 'garden' || ft === 'balcony' || ft === 'grass' ? 6 : (ft === 'tile' || ft === 'bathroom' || ft === 'laundry' || ft === 'kitchen' ? 2 : 3);
-    scaleTopUV(geo, room.w / scale, room.h / scale);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.receiveShadow = true;
-    mesh.position.set(room.x + room.w / 2, -FLOOR_SLAB_FT / 2, room.y + room.h / 2);
+
+    let mesh;
+    if (room.polygon && room.polygon.length >= 3) {
+      const cx = room.w / 2, cy = room.h / 2;
+      const shape = new THREE.Shape();
+      shape.moveTo(room.polygon[0][0] - room.x - cx, room.polygon[0][1] - room.y - cy);
+      for (let i = 1; i < room.polygon.length; i++) {
+        shape.lineTo(room.polygon[i][0] - room.x - cx, room.polygon[i][1] - room.y - cy);
+      }
+      shape.closePath();
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: FLOOR_SLAB_FT, bevelEnabled: false });
+      mesh = new THREE.Mesh(geo, mat);
+      mesh.receiveShadow = true;
+      mesh.rotation.x = -Math.PI / 2;
+      if (room.rotation) {
+        mesh.rotation.z = room.rotation;
+      }
+      mesh.position.set(room.x + cx, -FLOOR_SLAB_FT / 2, room.y + cy);
+    } else {
+      const geo = new THREE.BoxGeometry(room.w, FLOOR_SLAB_FT, room.h);
+      scaleTopUV(geo, room.w / scale, room.h / scale);
+      mesh = new THREE.Mesh(geo, mat);
+      mesh.receiveShadow = true;
+      mesh.position.set(room.x + room.w / 2, -FLOOR_SLAB_FT / 2, room.y + room.h / 2);
+    }
     mesh.name = `Floor_${room.id}`;
     mesh.userData = { selectable: 'room', roomId: room.id };
     group.add(mesh);
@@ -204,11 +224,33 @@ function buildCeilings(rooms, mats) {
   const group = new THREE.Group();
   group.name = 'Ceilings';
   rooms.forEach((room) => {
-    if (room.type === 'balcony' || room.type === 'garden') return; // open to sky
-    const mesh = box(room.w - 0.1, CEILING_SLAB_FT, room.h - 0.1, mats.ceiling, `Ceiling_${room.id}`);
-    mesh.castShadow = false;
-    mesh.position.set(room.x + room.w / 2, H + CEILING_SLAB_FT / 2, room.y + room.h / 2);
-    group.add(mesh);
+    if (room.type === 'balcony' || room.type === 'garden') return;
+    let mesh;
+    if (room.polygon && room.polygon.length >= 3) {
+      const cx = room.w / 2, cy = room.h / 2;
+      const shape = new THREE.Shape();
+      shape.moveTo(room.polygon[0][0] - room.x - cx, room.polygon[0][1] - room.y - cy);
+      for (let i = 1; i < room.polygon.length; i++) {
+        shape.lineTo(room.polygon[i][0] - room.x - cx, room.polygon[i][1] - room.y - cy);
+      }
+      shape.closePath();
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: CEILING_SLAB_FT, bevelEnabled: false });
+      mesh = new THREE.Mesh(geo, mats.ceiling);
+      mesh.castShadow = false;
+      mesh.rotation.x = -Math.PI / 2;
+      if (room.rotation) {
+        mesh.rotation.z = room.rotation;
+      }
+      mesh.position.set(room.x + cx, H + CEILING_SLAB_FT / 2, room.y + cy);
+    } else {
+      mesh = box(room.w - 0.1, CEILING_SLAB_FT, room.h - 0.1, mats.ceiling, `Ceiling_${room.id}`);
+      mesh.castShadow = false;
+      mesh.position.set(room.x + room.w / 2, H + CEILING_SLAB_FT / 2, room.y + room.h / 2);
+    }
+    if (mesh) {
+      mesh.name = `Ceiling_${room.id}`;
+      group.add(mesh);
+    }
   });
   return group;
 }
@@ -276,16 +318,41 @@ function buildWalls(layout, mats) {
   let wIdx = 0;
   walls.forEach((wall) => {
     const horizontal = Math.abs(wall.y1 - wall.y2) < 0.01;
+    const vertical = Math.abs(wall.x1 - wall.x2) < 0.01;
+
+    // Diagonal wall: create a simple box along the wall direction.
+    if (!horizontal && !vertical) {
+      const dx = wall.x2 - wall.x1, dy = wall.y2 - wall.y1;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len < EPS) return;
+      const th = wall.thickness || 0.375;
+      const exterior = wall.kind === 'exterior';
+      const wallMat = exterior ? mats.wallExt : mats.wall;
+      const geo = new THREE.BoxGeometry(len, H, th);
+      const mesh = new THREE.Mesh(geo, wallMat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.position.set(
+        (wall.x1 + wall.x2) / 2,
+        H / 2,
+        (wall.y1 + wall.y2) / 2,
+      );
+      mesh.rotation.y = -Math.atan2(dy, dx);
+      mesh.name = `Wall_D${++wIdx}`;
+      wallsGroup.add(mesh);
+      return;
+    }
+
     const orientation = horizontal ? 'h' : 'v';
     const u0 = horizontal ? Math.min(wall.x1, wall.x2) : Math.min(wall.y1, wall.y2);
     const u1 = horizontal ? Math.max(wall.x1, wall.x2) : Math.max(wall.y1, wall.y2);
     const fixed = horizontal ? wall.y1 : wall.x1;
     if (u1 - u0 < EPS) return;
 
-    const exterior = Math.abs(fixed) < 0.6 ||
+    const exterior = wall.kind === 'exterior' || Math.abs(fixed) < 0.6 ||
       (horizontal ? Math.abs(fixed - boundary.height) < 0.6 : Math.abs(fixed - boundary.width) < 0.6);
     const wallMat = exterior ? mats.wallExt : mats.wall;
-    const th = WALL_THICKNESS_FT;
+    const th = wall.thickness || 0.375;
 
     const ops = openingsOnWall(orientation, u0, u1, fixed, doors, windows);
     wIdx += 1;
@@ -735,7 +802,7 @@ export function buildModel(layout, opts = {}) {
 
   const furnishings = (layout.furnishings && layout.furnishings.length)
     ? layout.furnishings
-    : defaultFurnishings(rooms);
+    : defaultFurnishings(rooms, layout.doors);
   const furniture = buildFurnishings(furnishings, mats);
 
   root.add(floors, wallsGroup, doorsGroup, windowsGroup, ceilings, roof, furniture);

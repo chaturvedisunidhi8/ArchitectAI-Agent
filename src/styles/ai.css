@@ -1,0 +1,100 @@
+/* Styles for the automated (AI) design flow: mode chooser, pipeline progress
+   and the design report. Loaded after app.css so it can rely on its tokens. */
+
+/* ── Design mode chooser ─────────────────────────────────────────────────── */
+.mode-chooser { display: flex; flex-direction: column; gap: 10px; }
+.mode-card { position: relative; display: block; width: 100%; text-align: left; padding: 14px 16px; background: var(--color-surface); border: 1.5px solid var(--color-border); border-radius: var(--radius-lg); cursor: pointer; font-family: var(--font-body); color: var(--color-text); transition: all 0.16s ease; }
+.mode-card:hover { border-color: var(--color-text-muted); box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+.mode-card:active { transform: translateY(0); }
+.mode-card-ai { border-color: var(--color-accent); background: linear-gradient(180deg, var(--color-accent-light), var(--color-surface) 70%); }
+.mode-card-ai:hover { border-color: var(--color-accent-hover); box-shadow: 0 4px 14px rgba(200, 149, 108, 0.22); }
+.mode-card-badge { position: absolute; top: 12px; right: 14px; padding: 2px 7px; background: var(--color-accent); color: #fff; font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; border-radius: var(--radius-sm); }
+.mode-card-head { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; }
+.mode-card-icon { display: flex; color: var(--color-accent); }
+.mode-card-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--color-primary); }
+.mode-card-desc { font-size: 12px; line-height: 1.55; color: var(--color-text-secondary); }
+.mode-card-steps { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.mode-card-steps span { padding: 2px 7px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 10px; color: var(--color-text-muted); }
+.mode-card-cta { margin-top: 11px; font-family: var(--font-display); font-size: 12px; font-weight: 600; color: var(--color-accent); }
+
+.extraction-priority { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-light); }
+
+/* ── AI pipeline progress ────────────────────────────────────────────────── */
+.ai-progress-wrap { display: flex; align-items: center; justify-content: center; height: 100%; padding: 40px; }
+.ai-progress-card { width: 100%; max-width: 460px; padding: 28px 30px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-xl); box-shadow: var(--shadow-md); }
+.ai-progress-header { text-align: center; margin-bottom: 20px; }
+.ai-progress-pulse { display: inline-flex; animation: ai-pulse 1.8s ease-in-out infinite; }
+@keyframes ai-pulse { 0%, 100% { opacity: 0.45; transform: scale(0.94); } 50% { opacity: 1; transform: scale(1.06); } }
+.ai-progress-header h3 { font-family: var(--font-display); font-size: 18px; font-weight: 600; color: var(--color-primary); margin-top: 6px; }
+.ai-progress-prompt { font-size: 12px; color: var(--color-text-muted); margin-top: 6px; line-height: 1.5; font-style: italic; }
+.ai-progress-bar { height: 4px; background: var(--color-border-light); border-radius: 2px; overflow: hidden; margin-bottom: 22px; }
+.ai-progress-bar-fill { height: 100%; background: var(--color-accent); border-radius: 2px; transition: width 0.45s ease; }
+.ai-stage-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.ai-stage { display: flex; gap: 11px; align-items: flex-start; transition: opacity 0.25s ease; }
+.ai-stage-pending { opacity: 0.38; }
+.ai-stage-marker { flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 11px; border: 1.5px solid var(--color-border); color: var(--color-text-muted); background: var(--color-surface); }
+.ai-stage-active .ai-stage-marker { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-light); }
+.ai-stage-done .ai-stage-marker { border-color: var(--color-success); background: var(--color-success); color: #fff; }
+.ai-stage-text { display: flex; flex-direction: column; gap: 2px; }
+.ai-stage-label { font-size: 13px; font-weight: 500; color: var(--color-text); }
+.ai-stage-active .ai-stage-label { color: var(--color-primary); font-weight: 600; }
+.ai-stage-detail { font-size: 11px; color: var(--color-text-muted); line-height: 1.45; }
+
+/* ── AI design report ────────────────────────────────────────────────────── */
+.ai-report { margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--color-border-light); }
+.ai-score-hero { display: flex; align-items: center; gap: 14px; padding: 14px; background: var(--color-bg); border: 1px solid var(--color-border-light); border-radius: var(--radius-md); margin-bottom: 16px; }
+.ai-score-ring { flex-shrink: 0; width: 62px; height: 62px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 3px solid var(--color-border); background: var(--color-surface); }
+.ai-score-ring.ai-score-good { border-color: var(--color-success); }
+.ai-score-ring.ai-score-ok { border-color: var(--color-warning); }
+.ai-score-ring.ai-score-poor { border-color: var(--color-danger); }
+.ai-score-value { font-family: var(--font-display); font-size: 21px; font-weight: 700; color: var(--color-primary); line-height: 1; }
+.ai-score-max { font-family: var(--font-mono); font-size: 9px; color: var(--color-text-muted); }
+.ai-score-title { font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--color-primary); }
+.ai-score-sub { font-size: 11px; color: var(--color-text-muted); margin-top: 3px; line-height: 1.45; }
+
+.ai-report-block { margin-bottom: 16px; }
+.ai-report-heading { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); margin-bottom: 8px; }
+.ai-report-toggle { background: none; border: none; font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-accent); cursor: pointer; padding: 0; }
+.ai-report-toggle:hover { color: var(--color-accent-hover); }
+
+.ai-reason-list, .ai-decision-list, .ai-weakness-list { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+.ai-reason-list li, .ai-decision-list li, .ai-weakness-list li { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: var(--color-bg); border-radius: var(--radius-sm); border-left: 2px solid var(--color-success); }
+.ai-decision-list li { border-left-color: var(--color-accent); }
+.ai-weakness-list li { border-left-color: var(--color-warning); }
+.ai-constraint-list li { border-left-color: var(--color-danger); }
+.ai-reason-label, .ai-decision-title, .ai-weakness-label { font-size: 12px; font-weight: 600; color: var(--color-primary); }
+.ai-reason-note, .ai-decision-detail, .ai-weakness-note { font-size: 11px; color: var(--color-text-secondary); line-height: 1.45; }
+
+.ai-metric-list { display: flex; flex-direction: column; gap: 9px; }
+.ai-metric-row { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+.ai-metric-label { flex: 1; font-size: 12px; color: var(--color-text-secondary); }
+.ai-metric-weight { font-family: var(--font-mono); font-size: 9px; color: var(--color-text-muted); }
+.ai-metric-score { font-family: var(--font-mono); font-size: 12px; font-weight: 600; min-width: 26px; text-align: right; }
+.ai-metric-score.ai-score-good { color: var(--color-success); }
+.ai-metric-score.ai-score-ok { color: var(--color-warning); }
+.ai-metric-score.ai-score-poor { color: var(--color-danger); }
+.ai-metric-track { height: 5px; background: var(--color-border-light); border-radius: 3px; overflow: hidden; }
+.ai-metric-fill { height: 100%; border-radius: 3px; transition: width 0.35s ease; }
+.ai-fill-good { background: var(--color-success); }
+.ai-fill-ok { background: var(--color-warning); }
+.ai-fill-poor { background: var(--color-danger); }
+
+.ai-alt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ai-alt { padding: 0; background: var(--color-surface); border: 1.5px solid var(--color-border-light); border-radius: var(--radius-md); cursor: pointer; overflow: hidden; text-align: left; font-family: var(--font-body); transition: all 0.15s ease; }
+.ai-alt:hover { border-color: var(--color-border); box-shadow: var(--shadow-sm); }
+.ai-alt.selected { border-color: var(--color-accent); box-shadow: 0 0 0 3px rgba(200, 149, 108, 0.15); }
+.ai-alt-info { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px 0; }
+.ai-alt-name { font-size: 11px; font-weight: 600; color: var(--color-primary); }
+.ai-alt-score { font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+.ai-alt-score.ai-score-good { color: var(--color-success); }
+.ai-alt-score.ai-score-ok { color: var(--color-warning); }
+.ai-alt-score.ai-score-poor { color: var(--color-danger); }
+.ai-alt-stats { padding: 1px 8px 7px; font-family: var(--font-mono); font-size: 9px; color: var(--color-text-muted); }
+
+.ai-report-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 18px; }
+
+/* Provenance strip: which engine actually produced this design. */
+.ai-engine-badge { display: flex; align-items: flex-start; gap: 7px; margin: -6px 0 16px; padding: 7px 9px; background: var(--color-surface); border: 1px solid var(--color-border-light); border-radius: var(--radius-sm); font-size: 10.5px; line-height: 1.45; color: var(--color-text-muted); }
+.ai-engine-badge strong { color: var(--color-text-secondary); font-weight: 600; }
+.ai-engine-dot { flex: none; width: 6px; height: 6px; margin-top: 4px; border-radius: 50%; background: var(--color-border); }
+.ai-engine-model .ai-engine-dot { background: var(--color-success); }

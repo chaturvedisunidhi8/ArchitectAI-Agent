@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import LayoutThumbnail from './LayoutThumbnail.jsx';
 
-export default function StepLayoutSelect({ variants, selectedIndex, onSelect, onCustomize, onConfirm, onBack }) {
+export default function StepLayoutSelect({ variants, selectedIndex, onSelect, onCustomize, onFreeform, onConfirm, onBack }) {
   if (!variants || variants.length === 0) {
     return (
       <div className="empty-state">
@@ -81,6 +81,34 @@ export default function StepLayoutSelect({ variants, selectedIndex, onSelect, on
               <div className="custom-option-cta">Open builder →</div>
             </div>
           </div>
+
+          {onFreeform && (
+            <div
+              className="layout-option custom-option"
+              onClick={onFreeform}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFreeform(); } }}
+              style={{ marginTop: 8 }}
+            >
+              <div className="custom-option-body">
+                <div className="custom-option-icon" aria-hidden="true">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+                    <path d="M3 17L9 11L13 15L21 7" stroke="var(--color-accent)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M14 7H21V14" stroke="var(--color-accent)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    <circle cx="5" cy="19" r="2" stroke="var(--color-accent)" strokeWidth="1.2" strokeDasharray="2 1.5" />
+                  </svg>
+                </div>
+                <div className="custom-option-text">
+                  <div className="layout-option-name">Freeform Layout</div>
+                  <div className="layout-option-desc">
+                    Draw your own boundary shape and freely place, reshape, and rotate rooms as arbitrary polygons.
+                  </div>
+                </div>
+                <div className="custom-option-cta">Open freeform →</div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

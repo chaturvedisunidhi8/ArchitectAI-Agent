@@ -153,6 +153,38 @@ function extractBudget(text) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Design priorities — phrases that tell the auto-designer what to optimise for
+// ---------------------------------------------------------------------------
+
+const PREFERENCE_KEYWORDS = {
+  vastu: ['vastu', 'vaastu', 'vastu compliant', 'vastu-compliant', 'shastra', 'auspicious', 'facing'],
+  daylight: ['natural light', 'sunlight', 'sunlit', 'bright', 'airy', 'ventilation', 'ventilated',
+    'cross ventilation', 'breezy', 'daylight', 'well lit', 'well-lit', 'windows'],
+  privacy: ['privacy', 'private', 'quiet', 'separate wing', 'secluded', 'guest wing'],
+  openPlan: ['open plan', 'open-plan', 'open concept', 'open-concept', 'open kitchen',
+    'open living', 'spacious feel', 'great room', 'loft'],
+  compact: ['compact', 'small', 'studio', 'tiny', 'efficient', 'space saving', 'space-saving',
+    'budget', 'affordable'],
+  luxury: ['luxury', 'luxurious', 'premium', 'grand', 'lavish', 'high-end', 'high end', 'villa'],
+};
+
+/**
+ * Detect which design priorities the description implies.  These become the
+ * scoring weights the auto-designer optimises against.
+ *
+ * @param {string} text
+ * @returns {Object<string, boolean>}
+ */
+function extractPreferences(text) {
+  const lower = text.toLowerCase();
+  const prefs = {};
+  for (const [key, keywords] of Object.entries(PREFERENCE_KEYWORDS)) {
+    if (keywords.some(kw => lower.includes(kw))) prefs[key] = true;
+  }
+  return prefs;
+}
+
 function extractAmenities(text) {
   const amenityKeywords = [
     'swimming pool', 'pool', 'gym', 'garden', 'parking', 'garage',
@@ -314,6 +346,10 @@ export function extractRequirements(prompt) {
   const budget = extractBudget(trimmed);
   const amenities = extractAmenities(trimmed);
   const rooms = extractRooms(trimmed);
+  const preferences = extractPreferences(trimmed);
+
+  // An explicit facing direction implies the user cares about orientation.
+  if (direction) preferences.vastu = true;
 
   // Validate minimum requirements
   const warnings = [];
@@ -337,17 +373,33 @@ export function extractRequirements(prompt) {
     extracted: {
       bhk,
       totalArea: effectiveArea,
+      // Whether the area came from the description or was inferred from the
+      // room list — the auto-designer sizes the envelope differently for each.
+      areaSpecified: Boolean(totalArea),
       style: style || 'modern',
       direction,
       floors,
       budget,
       amenities,
+      preferences,
       rooms: rooms.map(r => `${r.count}× ${r.type}`),
     },
     roomSpecs,
     warnings,
   };
 }
+
+/**
+ * Human-readable labels for the design priorities, for the UI chips.
+ */
+export const PREFERENCE_INFO = {
+  vastu: { label: 'Vastu', desc: 'Directional placement rules' },
+  daylight: { label: 'Daylight', desc: 'Windows and cross-ventilation' },
+  privacy: { label: 'Privacy', desc: 'Bedrooms shielded from public rooms' },
+  openPlan: { label: 'Open Plan', desc: 'Connected living, dining and kitchen' },
+  compact: { label: 'Compact', desc: 'Every square foot works' },
+  luxury: { label: 'Luxury', desc: 'Generous, well-proportioned rooms' },
+};
 
 // ---------------------------------------------------------------------------
 // Example prompts for the UI

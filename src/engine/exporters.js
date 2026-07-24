@@ -1,4 +1,5 @@
 import { hexToThree } from './constants.js';
+import { generateWallQuads } from './geometry.js';
 
 const WALL_HEIGHT = 2.8;
 const WALL_THICKNESS_3D = 0.15;
@@ -23,7 +24,18 @@ export function exportPNG(canvas) {
   });
 }
 
-export function exportSVG(layout, displayUnit) {
+/**
+ * Build the plan drawing as SVG markup.
+ *
+ * Kept separate from `exportSVG` so the same drawing can be produced outside
+ * a browser — in tests, in a build step, or when checking a generated plan
+ * without opening the app.
+ *
+ * @param {Object} layout
+ * @param {string} displayUnit - 'ft²' or 'm²'.
+ * @returns {string} SVG markup.
+ */
+export function buildSVG(layout, displayUnit) {
   const { boundary, rooms, walls, doors } = layout;
   const pad = 2;
   const svgW = boundary.width + pad * 2;
@@ -46,10 +58,17 @@ export function exportSVG(layout, displayUnit) {
     .ruler { font-size: 0.55px; font-family: "JetBrains Mono", monospace; fill: #B0A99F; text-anchor: middle; }
   </style>\n`;
 
+  // Background.
   svg += `<rect x="0" y="0" width="${boundary.width}" height="${boundary.height}" fill="#FAFAF8" stroke="#E5E3DE" stroke-width="0.1"/>\n`;
 
+  // Room floor fills.
   rooms.forEach(room => {
-    svg += `<rect x="${room.x}" y="${room.y}" width="${room.w}" height="${room.h}" fill="${room.color}" stroke="#1B2A4A" stroke-width="0.08"/>\n`;
+    const poly = room.polygon || [
+      [room.x, room.y], [room.x + room.w, room.y],
+      [room.x + room.w, room.y + room.h], [room.x, room.y + room.h],
+    ];
+    const points = poly.map(p => `${p[0]},${p[1]}`).join(' ');
+    svg += `<polygon points="${points}" fill="${room.color}" opacity="0.3"/>\n`;
     const cx = room.x + room.w / 2;
     const cy = room.y + room.h / 2;
     svg += `<text class="label" x="${cx}" y="${cy - 0.5}">${room.label}</text>\n`;
@@ -58,16 +77,28 @@ export function exportSVG(layout, displayUnit) {
     svg += `<text class="dim" x="${room.x - 0.5}" y="${cy}" transform="rotate(-90 ${room.x - 0.5} ${cy})">${fmt(room.h)} ${unit}</text>\n`;
   });
 
+  // Poché walls (filled quads).
+  if (walls) {
+    const wallQuads = generateWallQuads(walls);
+    wallQuads.forEach(quad => {
+      const points = quad.map(p => `${p[0]},${p[1]}`).join(' ');
+      svg += `<polygon points="${points}" fill="#1B2A4A"/>\n`;
+    });
+  }
+
+  // Doors.
   if (doors) {
     doors.forEach(door => {
       const r = door.width;
       if (door.horizontal) {
+        svg += `<rect x="${door.x}" y="${door.y - 0.15}" width="${r}" height="0.3" fill="#FAFAF8"/>\n`;
         svg += `<line x1="${door.x}" y1="${door.y}" x2="${door.x + r}" y2="${door.y}" stroke="#C8956C" stroke-width="0.06"/>\n`;
         const dir = door.swingDir === 'in' ? -1 : 1;
         const endX = door.x + r + r * Math.cos(Math.PI + dir * Math.PI / 2);
         const endY = door.y + r * Math.sin(Math.PI + dir * Math.PI / 2);
         svg += `<path d="M ${door.x} ${door.y} A ${r} ${r} 0 0 ${door.swingDir === 'in' ? 0 : 1} ${endX} ${endY}" fill="none" stroke="#C8956C" stroke-width="0.05"/>\n`;
       } else {
+        svg += `<rect x="${door.x - 0.15}" y="${door.y}" width="0.3" height="${r}" fill="#FAFAF8"/>\n`;
         svg += `<line x1="${door.x}" y1="${door.y}" x2="${door.x}" y2="${door.y + r}" stroke="#C8956C" stroke-width="0.06"/>\n`;
         const dir = door.swingDir === 'in' ? 1 : -1;
         const endX = door.x + r * Math.sin(-Math.PI / 2 + dir * Math.PI / 2);
@@ -77,6 +108,7 @@ export function exportSVG(layout, displayUnit) {
     });
   }
 
+  // Rulers.
   for (let gx = 0; gx <= boundary.width; gx += 5) {
     svg += `<text class="ruler" x="${gx}" y="-0.3">${fmt(gx)}</text>\n`;
   }
@@ -85,8 +117,11 @@ export function exportSVG(layout, displayUnit) {
   }
 
   svg += '</svg>';
+  return svg;
+}
 
-  const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+export function exportSVG(layout, displayUnit) {
+  const blob = new Blob([buildSVG(layout, displayUnit)], { type: 'image/svg+xml;charset=utf-8' });
   triggerDownload(blob, 'floor-plan.svg');
 }
 
@@ -98,11 +133,11 @@ export function exportJSON(layout, roomSpecs, totalArea, unit) {
     boundary: layout.boundary,
     rooms: layout.rooms.map(r => ({
       id: r.id,
-      type: r.type,
+      type: r.roomType || r.type,
       label: r.label,
       x: r.x, y: r.y,
       w: r.w, h: r.h,
-      area: Math.round(r.w * r.h),
+      area: Math.round(r.actualArea || r.w * r.h),
       color: r.color,
     })),
     walls: layout.walls,
