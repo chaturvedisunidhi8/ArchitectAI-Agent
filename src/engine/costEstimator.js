@@ -55,14 +55,15 @@ export function estimateCost(layout, style = 'modern', finishLevel = 'standard')
   const finishMult = FINISH_MULTIPLIER[finishLevel] || 1.0;
 
   const roomCosts = layout.rooms.map(room => {
-    const rates = BASE_RATES[room.type] || BASE_RATES.living;
-    const area = room.w * room.h;
+    const rt = room.roomType || room.type;
+    const rates = BASE_RATES[rt] || BASE_RATES.living;
+    const area = room.actualArea || (room.w * room.h);
     const rate = rates.mid * styleMult * finishMult;
     const cost = Math.round(area * rate);
     return {
       id: room.id,
       label: room.label,
-      type: room.type,
+      type: rt,
       area: Math.round(area),
       ratePerSqft: Math.round(rate),
       cost,

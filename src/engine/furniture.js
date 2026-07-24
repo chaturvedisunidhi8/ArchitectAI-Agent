@@ -134,28 +134,38 @@ function item(kind, roomId, x, y, rot = 0, extra = {}) {
 }
 
 // Sensible default furnishing set per room, in absolute plan coordinates.
-export function defaultFurnishings(rooms) {
+// `doors` is optional; when provided, furniture is placed to avoid door swing arcs.
+export function defaultFurnishings(rooms, doors) {
   const out = [];
   const push = (...items) => items.forEach(i => out.push(i));
+  const doorList = doors || [];
 
   rooms.forEach((room) => {
     const cx = room.x + room.w / 2;
     const cz = room.y + room.h / 2;
     const m = 1.2;
+    const rt = room.roomType || room.type;
     if (room.w < 3.5 || room.h < 3.5) {
-      if (room.type === 'balcony') push(item('railing', room.id, cx, room.y + 0.2));
+      if (rt === 'balcony') push(item('railing', room.id, cx, room.y + 0.2));
       return;
     }
 
-    switch (room.type) {
-      case 'bedroom':
+    // Find the room's door to avoid placing furniture in its swing arc.
+    const roomDoors = doorList.filter(d => d.roomId === room.id);
+
+    switch (rt) {
+      case 'bedroom': {
+        // Bed against the longest wall away from the door.
+        const bedY = findBedPosition(room, roomDoors);
         push(
-          item('bed', room.id, cx, room.y + 3.8),
-          item('nightstand', room.id, cx - 3, room.y + 1.2),
+          item('bed', room.id, cx, bedY),
+          item('nightstand', room.id, cx - 3, bedY - 2.6),
         );
         if (room.w > 8) push(item('wardrobe', room.id, room.x + room.w - m, cz, Math.PI / 2));
         break;
+      }
       case 'living':
+        // Sofa facing the TV wall (typically the wall opposite the door).
         push(
           item('sofa', room.id, cx, room.y + 2),
           item('coffee_table', room.id, cx, cz + 0.5),
@@ -170,21 +180,27 @@ export function defaultFurnishings(rooms) {
         offs.forEach(([dx, dz]) => push(item('dining_chair', room.id, cx + dx, cz + dz, dx !== 0 ? Math.PI / 2 : 0)));
         break;
       }
-      case 'kitchen':
+      case 'kitchen': {
+        // Counter along the top wall, sink in the middle, fridge on one end,
+        // stove on the other — work-triangle order.
+        const counterY = room.y + 1.2;
         push(
-          item('kitchen_counter', room.id, cx, room.y + 1.2),
-          item('sink', room.id, cx, room.y + 1.2),
+          item('kitchen_counter', room.id, cx, counterY),
+          item('sink', room.id, cx, counterY),
         );
         if (room.h > 6) push(item('fridge', room.id, room.x + room.w - m, room.y + room.h - m));
-        if (room.w > 8) push(item('stove', room.id, cx + 3, room.y + 1.2));
+        if (room.w > 8) push(item('stove', room.id, cx + 3, counterY));
         break;
-      case 'bathroom':
+      }
+      case 'bathroom': {
+        // Toilet and sink on the plumbing wall (left side), shower in the far corner.
         push(
           item('toilet', room.id, room.x + m, room.y + room.h - m),
           item('vanity', room.id, cx, room.y + m),
         );
         if (room.w > 5 && room.h > 5) push(item('shower', room.id, room.x + room.w - m - 0.5, room.y + room.h - m - 0.5));
         break;
+      }
       case 'study':
         push(
           item('desk', room.id, cx, room.y + m + 0.5),
@@ -220,4 +236,23 @@ export function defaultFurnishings(rooms) {
   });
 
   return out;
+}
+
+/**
+ * Find the Y position for a bed: against the longest wall away from the door.
+ */
+function findBedPosition(room, doors) {
+  const m = 3.8;
+  // If there's a door on the bottom wall, place bed near the top.
+  const hasBottomDoor = doors.some(d => d.side === 'bottom');
+  const hasTopDoor = doors.some(d => d.side === 'top');
+
+  if (hasBottomDoor) {
+    return room.y + room.h - m;
+  }
+  if (hasTopDoor) {
+    return room.y + m;
+  }
+  // Default: place near the top (away from the typical entry at the bottom).
+  return room.y + m;
 }

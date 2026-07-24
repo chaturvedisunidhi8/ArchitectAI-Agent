@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import './styles/app.css';
+import './styles/ai.css';
 import useFloorPlan from './hooks/useFloorPlan.js';
 import StepNav from './components/StepNav.jsx';
 import StepPrompt from './components/StepPrompt.jsx';
@@ -9,22 +10,26 @@ import StepLayoutSelect from './components/StepLayoutSelect.jsx';
 import StepThemeSelect from './components/StepThemeSelect.jsx';
 import StepFloorPlan from './components/StepFloorPlan.jsx';
 import CustomLayoutBuilder from './components/CustomLayoutBuilder.jsx';
+import FreeformLayoutBuilder from './components/FreeformLayoutBuilder.jsx';
 import ExportPanel from './components/ExportPanel.jsx';
+import AiDesignProgress from './components/AiDesignProgress.jsx';
+import AiDesignReport from './components/AiDesignReport.jsx';
 import { getRoomType } from './engine/constants.js';
 
 export default function App() {
   const fp = useFloorPlan();
   const [showExport, setShowExport] = useState(false);
   const [customBuilderOpen, setCustomBuilderOpen] = useState(false);
+  const [freeformBuilderOpen, setFreeformBuilderOpen] = useState(false);
   const canvasRef = useRef(null);
 
   useEffect(() => {
     fp.loadFromLocal();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The custom builder only lives on the layout step; close it on any nav away.
+  // The custom/freeform builder only lives on the layout step; close it on any nav away.
   useEffect(() => {
-    if (fp.step !== 3) setCustomBuilderOpen(false);
+    if (fp.step !== 3) { setCustomBuilderOpen(false); setFreeformBuilderOpen(false); }
   }, [fp.step]);
 
   const editor = useMemo(() => ({
@@ -58,16 +63,21 @@ export default function App() {
   }, [fp]);
 
   const handleLayoutConfirm = useCallback(() => {
-    // When building a custom layout, fp.layout already holds the user's
-    // arranged rooms — don't re-apply the pristine grid over their work.
+    // When building a custom or freeform layout, fp.layout already holds the
+    // user's arranged rooms — don't re-apply the pristine grid over their work.
     if (customBuilderOpen) {
       setCustomBuilderOpen(false);
       fp.goNext();
       return;
     }
+    if (freeformBuilderOpen) {
+      setFreeformBuilderOpen(false);
+      fp.goNext();
+      return;
+    }
     fp.applyVariant(fp.selectedLayoutIndex);
     fp.goNext();
-  }, [fp, customBuilderOpen]);
+  }, [fp, customBuilderOpen, freeformBuilderOpen]);
 
   // Open the custom-layout builder: apply the plain grid as a starting canvas,
   // then let the user arrange it themselves.
@@ -79,6 +89,14 @@ export default function App() {
 
   const handleCancelCustomBuilder = useCallback(() => {
     setCustomBuilderOpen(false);
+  }, []);
+
+  const handleOpenFreeformBuilder = useCallback(() => {
+    setFreeformBuilderOpen(true);
+  }, []);
+
+  const handleCancelFreeformBuilder = useCallback(() => {
+    setFreeformBuilderOpen(false);
   }, []);
 
   // Reset the builder back to the pristine starting grid. Re-applying the
@@ -93,11 +111,22 @@ export default function App() {
   }, [fp]);
 
   const handleNlpApply = useCallback((nlpResult) => {
-    fp.applyNlpResult(nlpResult);
+    fp.startManualDesign(nlpResult);
+  }, [fp]);
+
+  const handleAutoDesign = useCallback((prompt) => {
+    fp.startAutoDesign(prompt);
   }, [fp]);
 
   const handleStartManual = useCallback(() => {
-    fp.setStep(1);
+    fp.startManualDesign(null);
+  }, [fp]);
+
+  // Leaving the AI report drops back into the normal step flow with the
+  // AI-derived room schedule already loaded.
+  const handleSwitchToManual = useCallback(() => {
+    fp.setDesignMode('manual');
+    fp.setStep(2);
   }, [fp]);
 
   // "Edit Rooms" jumps back to the Rooms step so room selection/areas can be
@@ -119,7 +148,9 @@ export default function App() {
           {fp.step === 0 && (
             <StepPrompt
               onApply={handleNlpApply}
+              onAutoDesign={handleAutoDesign}
               onStartManual={handleStartManual}
+              aiError={fp.aiError}
             />
           )}
 
@@ -164,6 +195,7 @@ export default function App() {
               selectedIndex={fp.selectedLayoutIndex}
               onSelect={fp.setSelectedLayoutIndex}
               onCustomize={handleOpenCustomBuilder}
+              onFreeform={handleOpenFreeformBuilder}
               onConfirm={handleLayoutConfirm}
               onBack={fp.goBack}
             />
@@ -175,6 +207,18 @@ export default function App() {
               onSelect={fp.setSelectedTheme}
               onConfirm={handleThemeConfirm}
               onBack={fp.goBack}
+            />
+          )}
+
+          {fp.step === 5 && fp.designMode === 'ai' && fp.aiResult && (
+            <AiDesignReport
+              result={fp.aiResult}
+              variants={fp.layoutVariants}
+              selectedIndex={fp.selectedLayoutIndex}
+              onSelectVariant={fp.applyAiVariant}
+              onRegenerate={fp.regenerateAutoDesign}
+              onEditManually={handleSwitchToManual}
+              busy={fp.aiRunning}
             />
           )}
 
@@ -231,7 +275,10 @@ export default function App() {
               )}
 
               <div className="sidebar-actions" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <button className="btn btn-secondary btn-full btn-sm" onClick={() => fp.setStep(0)}>
+                <button
+                  className="btn btn-secondary btn-full btn-sm"
+                  onClick={() => { fp.setDesignMode(null); fp.setStep(0); }}
+                >
                   Start Over
                 </button>
               </div>
@@ -241,7 +288,42 @@ export default function App() {
       </div>
 
       <div className="main-area">
-        {customBuilderOpen && fp.step === 3 && fp.layout ? (
+        {fp.aiRunning ? (
+          <AiDesignProgress progress={fp.aiProgress} prompt={fp.promptText} />
+        ) : freeformBuilderOpen && fp.step === 3 ? (
+          <FreeformLayoutBuilder
+            freeformBoundary={fp.freeformBoundary}
+            freeformRooms={fp.freeformRooms}
+            drawingMode={fp.drawingMode}
+            activeTool={fp.activeTool}
+            snapToGrid={fp.snapToGrid}
+            freeformWarnings={fp.freeformWarnings}
+            totalAreaFt={fp.totalAreaFt}
+            displayUnit={fp.displayUnit}
+            selectedRoomId={fp.selectedRoomId}
+            onSelectRoom={fp.setSelectedRoomId}
+            setFreeformBoundary={fp.setFreeformBoundary}
+            setFreeformBoundaryPolygon={fp.setFreeformBoundaryPolygon}
+            addFreeformRectRoom={fp.addFreeformRectRoom}
+            addFreeformPolygonRoom={fp.addFreeformPolygonRoom}
+            liveMoveFreeformRoom={fp.liveMoveFreeformRoom}
+            liveReshapeFreeformVertex={fp.liveReshapeFreeformVertex}
+            liveRotateFreeformRoom={fp.liveRotateFreeformRoom}
+            deleteFreeformRoom={fp.deleteFreeformRoom}
+            updateFreeformRoomProps={fp.updateFreeformRoomProps}
+            setActiveTool={fp.setActiveTool}
+            setDrawingMode={fp.setDrawingMode}
+            toggleSnap={fp.toggleSnap}
+            commitFreeformEdit={fp.commitFreeformEdit}
+            finalizeFreeformLayout={fp.finalizeFreeformLayout}
+            canUndo={fp.canUndo}
+            canRedo={fp.canRedo}
+            onUndo={fp.undo}
+            onRedo={fp.redo}
+            onCancel={handleCancelFreeformBuilder}
+            onConfirm={handleLayoutConfirm}
+          />
+        ) : customBuilderOpen && fp.step === 3 && fp.layout ? (
           <CustomLayoutBuilder
             layout={fp.layout}
             selectedRoomId={fp.selectedRoomId}
@@ -335,7 +417,7 @@ export default function App() {
             </h3>
             <p>
               {fp.step === 0
-                ? 'Tell us about your ideal home in natural language — we\'ll extract the details.'
+                ? 'Tell us about your ideal home in natural language, then let the AI design it end to end — or build it yourself step by step.'
                 : fp.step === 1
                 ? 'Enter the total area of your flat in the sidebar, then proceed to configure rooms.'
                 : fp.step === 2

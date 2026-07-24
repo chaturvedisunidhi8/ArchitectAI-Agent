@@ -7,9 +7,50 @@
 
 import { WINDOWED_ROOMS } from './constants.js';
 
-function roomExteriorWalls(room, boundary) {
+function edgesOverlap(x1, y1, x2, y2, bx1, by1, bx2, by2, tol) {
+  // Project room edge endpoints onto boundary edge parameter range.
+  const edx = bx2 - bx1, edy = by2 - by1;
+  const elen2 = edx * edx + edy * edy;
+  if (elen2 < 1e-10) return false;
+  const t1 = ((x1 - bx1) * edx + (y1 - by1) * edy) / elen2;
+  const t2 = ((x2 - bx1) * edx + (y2 - by1) * edy) / elen2;
+  const tMin = Math.min(t1, t2), tMax = Math.max(t1, t2);
+  const overlapStart = Math.max(tMin, 0), overlapEnd = Math.min(tMax, 1);
+  if (overlapEnd - overlapStart < 1e-6) return false;
+  const cx = (Math.max(tMin, 0) + Math.min(tMax, 1)) / 2;
+  const px = bx1 + cx * edx, py = by1 + cx * edy;
+  const ax = (x1 + x2) / 2, ay = (y1 + y2) / 2;
+  return Math.hypot(ax - px, ay - py) < tol;
+}
+
+export function roomExteriorWalls(room, boundary) {
   const sides = [];
   const tol = 0.5;
+
+  // Polygon-aware check, used only when the envelope is itself a polygon.
+  // Rectangular envelopes (everything the subdivision engine produces) carry
+  // width/height only — without this guard the loop below found nothing and
+  // every room reported zero exterior walls.
+  const bPoly = boundary.polygon;
+  if (room.polygon && room.polygon.length >= 3 && bPoly && bPoly.length >= 3) {
+    const poly = room.polygon;
+    for (let i = 0; i < poly.length; i++) {
+      const [x1, y1] = poly[i];
+      const [x2, y2] = poly[(i + 1) % poly.length];
+      // Check if this room edge overlaps / is near any boundary edge.
+      for (let j = 0; j < bPoly.length; j++) {
+        const [bx1, by1] = bPoly[j];
+        const [bx2, by2] = bPoly[(j + 1) % bPoly.length];
+        if (edgesOverlap(x1, y1, x2, y2, bx1, by1, bx2, by2, tol)) {
+          sides.push(`edge${i}`);
+          break;
+        }
+      }
+    }
+    return sides;
+  }
+
+  // Bbox fallback for rectangular rooms.
   if (Math.abs(room.y) < tol) sides.push('bottom');
   if (Math.abs((room.y + room.h) - boundary.height) < tol) sides.push('top');
   if (Math.abs(room.x) < tol) sides.push('left');
@@ -18,7 +59,8 @@ function roomExteriorWalls(room, boundary) {
 }
 
 function scoreNaturalLight(room, layout) {
-  if (!WINDOWED_ROOMS.has(room.type)) return { score: 100, note: 'Naturally lit room type' };
+  const rt = room.roomType || room.type;
+  if (!WINDOWED_ROOMS.has(rt)) return { score: 100, note: 'Naturally lit room type' };
 
   const exteriorSides = roomExteriorWalls(room, layout.boundary);
   const windows = (layout.windows || []).filter(w => w.roomId === room.id);
@@ -51,6 +93,7 @@ function scoreNaturalLight(room, layout) {
 }
 
 function scoreVentilation(room, layout) {
+  const rt = room.roomType || room.type;
   const exteriorSides = roomExteriorWalls(room, layout.boundary);
   const windows = (layout.windows || []).filter(w => w.roomId === room.id);
 
@@ -72,7 +115,7 @@ function scoreVentilation(room, layout) {
   else if (ratio > 0.05) score += 10;
 
   // Balcony/garden bonus
-  if (room.type === 'balcony' || room.type === 'garden') score += 10;
+  if (rt === 'balcony' || rt === 'garden') score += 10;
 
   return {
     score: Math.min(100, score),
@@ -83,7 +126,7 @@ function scoreVentilation(room, layout) {
 }
 
 export function analyzeEnergy(layout) {
-  if (!layout || !layout.rooms) return null;
+  if (!layout || !layout.rooms || layout.rooms.length === 0) return null;
 
   const roomAnalyses = layout.rooms.map(room => {
     const light = scoreNaturalLight(room, layout);
@@ -93,7 +136,8 @@ export function analyzeEnergy(layout) {
     return {
       id: room.id,
       label: room.label,
-      type: room.type,
+      // RoomCells carry `roomType`; legacy/freeform rooms carry `type`.
+      type: room.roomType || room.type,
       light,
       ventilation,
       overall,

@@ -1,13 +1,13 @@
 import React, { useRef, useEffect, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
 import { CATALOG } from '../engine/furniture.js';
+import { generateWallQuads } from '../engine/geometry.js';
 
-const WALL_COLOR = '#1B2A4A';
-const WALL_WIDTH = 2.5;
-const INNER_WALL_WIDTH = 1.8;
-const DIM_COLOR = '#9A9A9A';
+const WALL_FILL = '#1B2A4A';
+const FLOOR_FILL = '#F5F3EF';
+const ZONING_COLORS = true;
 const SELECTED_STROKE = '#C8956C';
 const DOOR_COLOR = '#C8956C';
-const SNAP_DIST = 1.5;
+const WINDOW_COLOR = '#6BA3C7';
 
 function computeTransform(canvas, boundary, scale, viewOffset) {
   const dpr = window.devicePixelRatio || 1;
@@ -37,6 +37,7 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
   const [showMeasure, setShowMeasure] = useState(false);
   const [measureStart, setMeasureStart] = useState(null);
   const [measureEnd, setMeasureEnd] = useState(null);
+  const [showZoning, setShowZoning] = useState(false);
   const isPanning = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
 
@@ -59,7 +60,7 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.scale(t.dpr, t.dpr);
 
-    // Background outside boundary
+    // Background
     ctx.fillStyle = '#F0EEEA';
     ctx.fillRect(0, 0, t.cssW, t.cssH);
 
@@ -67,7 +68,7 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
     ctx.fillStyle = '#FAFAF8';
     ctx.fillRect(tx(0, t), ty(0, t), ts(boundary.width, t), ts(boundary.height, t));
 
-    // Grid
+    // Grid (subtle)
     ctx.strokeStyle = '#EDEBE6';
     ctx.lineWidth = 0.4;
     for (let gx = 0; gx <= boundary.width; gx += 1) {
@@ -99,32 +100,60 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
       ctx.stroke();
     }
 
-    // Room fills
+    // --- Room fills (floors) ---
     rooms.forEach((room) => {
       const isSelected = room.id === selectedRoomId;
       const isHovered = room.id === hoveredRoom;
       const isDragging = dragState && dragState.roomId === room.id && dragState.moved;
 
-      ctx.fillStyle = room.color;
-      ctx.fillRect(tx(room.x, t), ty(room.y, t), ts(room.w, t), ts(room.h, t));
+      // Floor fill — light neutral by default, color when zoning overlay is on.
+      if (showZoning) {
+        ctx.fillStyle = room.color;
+      } else {
+        ctx.fillStyle = FLOOR_FILL;
+      }
+
+      // Draw room polygon.
+      const poly = room.polygon || [
+        [room.x, room.y], [room.x + room.w, room.y],
+        [room.x + room.w, room.y + room.h], [room.x, room.y + room.h],
+      ];
+      ctx.beginPath();
+      ctx.moveTo(tx(poly[0][0], t), ty(poly[0][1], t));
+      for (let i = 1; i < poly.length; i++) {
+        ctx.lineTo(tx(poly[i][0], t), ty(poly[i][1], t));
+      }
+      ctx.closePath();
+      ctx.fill();
 
       // Subtle inner shadow for depth
+      ctx.save();
+      ctx.clip();
       const grad = ctx.createLinearGradient(tx(room.x, t), ty(room.y, t), tx(room.x, t), ty(room.y + room.h, t));
       grad.addColorStop(0, 'rgba(255,255,255,0.12)');
       grad.addColorStop(1, 'rgba(0,0,0,0.03)');
       ctx.fillStyle = grad;
       ctx.fillRect(tx(room.x, t), ty(room.y, t), ts(room.w, t), ts(room.h, t));
+      ctx.restore();
 
       if (isHovered && !isSelected) {
         ctx.fillStyle = 'rgba(200, 149, 108, 0.1)';
-        ctx.fillRect(tx(room.x, t), ty(room.y, t), ts(room.w, t), ts(room.h, t));
+        ctx.beginPath();
+        ctx.moveTo(tx(poly[0][0], t), ty(poly[0][1], t));
+        for (let i = 1; i < poly.length; i++) ctx.lineTo(tx(poly[i][0], t), ty(poly[i][1], t));
+        ctx.closePath();
+        ctx.fill();
       }
 
       if (isSelected) {
         ctx.strokeStyle = SELECTED_STROKE;
         ctx.lineWidth = 2.5;
         ctx.setLineDash([]);
-        ctx.strokeRect(tx(room.x, t) - 1, ty(room.y, t) - 1, ts(room.w, t) + 2, ts(room.h, t) + 2);
+        ctx.beginPath();
+        ctx.moveTo(tx(poly[0][0], t), ty(poly[0][1], t));
+        for (let i = 1; i < poly.length; i++) ctx.lineTo(tx(poly[i][0], t), ty(poly[i][1], t));
+        ctx.closePath();
+        ctx.stroke();
 
         // Corner handles
         const corners = [
@@ -141,57 +170,70 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
 
       if (isDragging) {
         ctx.fillStyle = 'rgba(200, 149, 108, 0.15)';
-        ctx.fillRect(tx(room.x, t), ty(room.y, t), ts(room.w, t), ts(room.h, t));
+        ctx.beginPath();
+        ctx.moveTo(tx(poly[0][0], t), ty(poly[0][1], t));
+        for (let i = 1; i < poly.length; i++) ctx.lineTo(tx(poly[i][0], t), ty(poly[i][1], t));
+        ctx.closePath();
+        ctx.fill();
       }
 
+      // Room label + area — hide if cell is too small on screen.
       const cx = tx(room.x + room.w / 2, t);
       const cy = ty(room.y + room.h / 2, t);
+      const screenW = ts(room.w, t);
+      const screenH = ts(room.h, t);
 
-      // Room label
-      ctx.fillStyle = WALL_COLOR;
-      const fontSize = Math.max(9, Math.min(14, ts(1.1, t)));
-      ctx.font = `600 ${fontSize}px "DM Sans", sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(room.label, cx, cy - ts(0.7, t));
+      if (screenW > 30 && screenH > 20) {
+        // Label
+        ctx.fillStyle = WALL_FILL;
+        const fontSize = Math.max(8, Math.min(14, ts(1.1, t)));
+        ctx.font = `600 ${fontSize}px "DM Sans", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(room.label, cx, cy - ts(0.6, t));
 
-      // Area
-      ctx.fillStyle = DIM_COLOR;
-      const areaFontSize = Math.max(8, Math.min(11, ts(0.85, t)));
-      ctx.font = `400 ${areaFontSize}px "JetBrains Mono", monospace`;
-      const areaSqFt = Math.round(room.w * room.h);
-      const areaDisplay = displayUnit === 'm\u00B2'
-        ? (areaSqFt * 0.092903).toFixed(1) + ' m\u00B2'
-        : areaSqFt + ' ft\u00B2';
-      ctx.fillText(areaDisplay, cx, cy + ts(0.7, t));
+        // Area
+        ctx.fillStyle = '#9A9A9A';
+        const areaFontSize = Math.max(7, Math.min(11, ts(0.85, t)));
+        ctx.font = `400 ${areaFontSize}px "JetBrains Mono", monospace`;
+        const areaSqFt = Math.round(room.w * room.h);
+        const areaDisplay = displayUnit === 'm\u00B2'
+          ? (areaSqFt * 0.092903).toFixed(1) + ' m\u00B2'
+          : areaSqFt + ' ft\u00B2';
+        ctx.fillText(areaDisplay, cx, cy + ts(0.6, t));
+      }
 
-      // Dimensions along edges
-      const dimFontSize = Math.max(7, Math.min(9, ts(0.65, t)));
-      ctx.font = `300 ${dimFontSize}px "JetBrains Mono", monospace`;
-      ctx.fillStyle = '#B0A99F';
-
-      const wLabel = displayUnit === 'm\u00B2'
-        ? (room.w * 0.3048).toFixed(1) + 'm'
-        : room.w.toFixed(1) + '\'';
-      const hLabel = displayUnit === 'm\u00B2'
-        ? (room.h * 0.3048).toFixed(1) + 'm'
-        : room.h.toFixed(1) + '\'';
-
-      ctx.textAlign = 'center';
-      ctx.fillText(wLabel, cx, ty(room.y + room.h + 0.6, t));
-      ctx.save();
-      ctx.translate(tx(room.x - 0.6, t), cy);
-      ctx.rotate(-Math.PI / 2);
-      ctx.fillText(hLabel, 0, 0);
-      ctx.restore();
+      // Dimension labels along edges
+      if (screenW > 25) {
+        const dimFontSize = Math.max(6, Math.min(9, ts(0.6, t)));
+        ctx.font = `300 ${dimFontSize}px "JetBrains Mono", monospace`;
+        ctx.fillStyle = '#B0A99F';
+        ctx.textAlign = 'center';
+        const wLabel = displayUnit === 'm\u00B2'
+          ? (room.w * 0.3048).toFixed(1) + 'm'
+          : room.w.toFixed(1) + '\'';
+        ctx.fillText(wLabel, cx, ty(room.y + room.h + 0.5, t));
+      }
+      if (screenH > 25) {
+        const dimFontSize = Math.max(6, Math.min(9, ts(0.6, t)));
+        ctx.font = `300 ${dimFontSize}px "JetBrains Mono", monospace`;
+        ctx.fillStyle = '#B0A99F';
+        const hLabel = displayUnit === 'm\u00B2'
+          ? (room.h * 0.3048).toFixed(1) + 'm'
+          : room.h.toFixed(1) + '\'';
+        ctx.save();
+        ctx.translate(tx(room.x - 0.5, t), cy);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText(hLabel, 0, 0);
+        ctx.restore();
+      }
     });
 
-    // Doors
+    // --- Doors (gap + swing arc) ---
     if (doors) {
       doors.forEach(door => {
         ctx.save();
         ctx.strokeStyle = DOOR_COLOR;
-        ctx.fillStyle = 'rgba(200, 149, 108, 0.15)';
         ctx.lineWidth = 1.5;
 
         if (door.horizontal) {
@@ -200,74 +242,119 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
           const dw = Math.abs(ts(door.width, t));
           if (dw < 2) { ctx.restore(); return; }
 
+          // Gap in wall (white fill to "erase" wall behind door).
+          ctx.fillStyle = '#FAFAF8';
+          ctx.fillRect(dx, dy - ts(0.3, t), dw, ts(0.6, t));
+
+          // Door leaf line.
           ctx.beginPath();
           ctx.moveTo(dx, dy);
           ctx.lineTo(dx + dw, dy);
           ctx.stroke();
 
+          // Swing arc.
           const dir = door.swingDir === 'in' ? -1 : 1;
+          ctx.fillStyle = 'rgba(200, 149, 108, 0.12)';
           ctx.beginPath();
           ctx.moveTo(dx, dy);
           ctx.arc(dx + dw, dy, dw, Math.PI, Math.PI + dir * Math.PI / 2, door.swingDir === 'in');
-          ctx.stroke();
-
-          ctx.beginPath();
-          ctx.moveTo(dx, dy);
-          ctx.arc(dx + dw, dy, dw, Math.PI, Math.PI + dir * Math.PI / 2, door.swingDir === 'in');
-          ctx.lineTo(dx + dw, dy);
           ctx.closePath();
           ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(dx, dy);
+          ctx.arc(dx + dw, dy, dw, Math.PI, Math.PI + dir * Math.PI / 2, door.swingDir === 'in');
+          ctx.stroke();
         } else {
           const dx = tx(door.x, t);
           const dy = ty(door.y, t);
           const dh = Math.abs(ts(door.width, t));
           if (dh < 2) { ctx.restore(); return; }
 
+          // Gap in wall.
+          ctx.fillStyle = '#FAFAF8';
+          ctx.fillRect(dx - ts(0.3, t), dy, ts(0.6, t), dh);
+
+          // Door leaf line.
           ctx.beginPath();
           ctx.moveTo(dx, dy);
           ctx.lineTo(dx, dy + dh);
           ctx.stroke();
 
+          // Swing arc.
           const dir = door.swingDir === 'in' ? 1 : -1;
+          ctx.fillStyle = 'rgba(200, 149, 108, 0.12)';
+          ctx.beginPath();
+          ctx.moveTo(dx, dy + dh);
+          ctx.arc(dx, dy + dh, dh, -Math.PI / 2, -Math.PI / 2 + dir * Math.PI / 2, door.swingDir !== 'in');
+          ctx.closePath();
+          ctx.fill();
           ctx.beginPath();
           ctx.moveTo(dx, dy + dh);
           ctx.arc(dx, dy + dh, dh, -Math.PI / 2, -Math.PI / 2 + dir * Math.PI / 2, door.swingDir !== 'in');
           ctx.stroke();
-
-          ctx.beginPath();
-          ctx.moveTo(dx, dy + dh);
-          ctx.arc(dx, dy + dh, dh, -Math.PI / 2, -Math.PI / 2 + dir * Math.PI / 2, door.swingDir !== 'in');
-          ctx.lineTo(dx, dy + dh);
-          ctx.closePath();
-          ctx.fill();
         }
         ctx.restore();
       });
     }
 
-    // Windows on walls
+    // --- Windows (double line within wall) ---
     if (layout.windows) {
       layout.windows.forEach(win => {
         ctx.save();
-        ctx.strokeStyle = '#6BA3C7';
-        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = WINDOW_COLOR;
         ctx.setLineDash([]);
+        const wallThickness = ts(0.15, t); // Visual window thickness.
+
         if (win.horizontal) {
+          const wx = tx(win.x, t);
+          const wy = ty(win.y, t);
+          const ww = ts(win.width, t);
+          // Double line.
+          ctx.lineWidth = 1.2;
           ctx.beginPath();
-          ctx.moveTo(tx(win.x, t), ty(win.y, t));
-          ctx.lineTo(tx(win.x + win.width, t), ty(win.y, t));
+          ctx.moveTo(wx, wy - wallThickness);
+          ctx.lineTo(wx + ww, wy - wallThickness);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(wx, wy + wallThickness);
+          ctx.lineTo(wx + ww, wy + wallThickness);
+          ctx.stroke();
+          // End caps.
+          ctx.beginPath();
+          ctx.moveTo(wx, wy - wallThickness);
+          ctx.lineTo(wx, wy + wallThickness);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(wx + ww, wy - wallThickness);
+          ctx.lineTo(wx + ww, wy + wallThickness);
           ctx.stroke();
         } else {
+          const wx = tx(win.x, t);
+          const wy = ty(win.y, t);
+          const wh = ts(win.width, t);
+          ctx.lineWidth = 1.2;
           ctx.beginPath();
-          ctx.moveTo(tx(win.x, t), ty(win.y, t));
-          ctx.lineTo(tx(win.x, t), ty(win.y + win.width, t));
+          ctx.moveTo(wx - wallThickness, wy);
+          ctx.lineTo(wx - wallThickness, wy + wh);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(wx + wallThickness, wy);
+          ctx.lineTo(wx + wallThickness, wy + wh);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(wx - wallThickness, wy);
+          ctx.lineTo(wx + wallThickness, wy);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(wx - wallThickness, wy + wh);
+          ctx.lineTo(wx + wallThickness, wy + wh);
           ctx.stroke();
         }
         ctx.restore();
       });
     }
 
-    // Furniture items
+    // --- Furniture items ---
     if (layout.furnishings && layout.furnishings.length) {
       layout.furnishings.forEach(f => {
         const meta = CATALOG[f.kind];
@@ -283,7 +370,6 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
         const cx = tx(f.x, t);
         const cy = ty(f.y, t);
 
-        // Compute rotated corners for the furniture rectangle
         const hw = ts(rw, t) / 2;
         const hh = ts(rh, t) / 2;
         const cos = Math.cos(rot);
@@ -292,7 +378,6 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
           [-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh],
         ].map(([dx, dy]) => [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos]);
 
-        // Fill with semi-transparent color based on category
         const catColors = {
           Bedroom: 'rgba(200, 160, 100, 0.18)',
           Living: 'rgba(120, 140, 170, 0.18)',
@@ -310,12 +395,10 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
         ctx.closePath();
         ctx.fill();
 
-        // Outline
         ctx.strokeStyle = 'rgba(100, 80, 60, 0.35)';
         ctx.lineWidth = 0.8;
         ctx.stroke();
 
-        // Label (only if big enough on screen)
         if (ts(Math.min(rw, rh), t) > 14) {
           const fontSize = Math.max(6, Math.min(9, ts(0.6, t)));
           ctx.font = `400 ${fontSize}px "DM Sans", sans-serif`;
@@ -329,60 +412,30 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
       });
     }
 
-    // Walls on top
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    // --- Walls (solid filled poché) ---
     if (walls) {
-      walls.forEach((wall) => {
-        const isBoundary = wall.x1 === 0 && wall.x2 === boundary.width ||
-          wall.y1 === 0 && wall.y2 === boundary.height ||
-          wall.x1 === 0 && wall.x2 === 0 ||
-          wall.y1 === 0 && wall.y2 === 0 ||
-          Math.abs(wall.x1) < 0.01 && Math.abs(wall.x2 - boundary.width) < 0.01 ||
-          Math.abs(wall.y1) < 0.01 && Math.abs(wall.y2 - boundary.height) < 0.01;
+      const wallQuads = generateWallQuads(walls);
+      ctx.fillStyle = WALL_FILL;
 
-        const isOuter = Math.abs(wall.x1) < 0.01 || Math.abs(wall.y1) < 0.01 ||
-          Math.abs(wall.x2 - boundary.width) < 0.01 || Math.abs(wall.y2 - boundary.height) < 0.01;
-
-        ctx.strokeStyle = WALL_COLOR;
-        ctx.lineWidth = isOuter ? WALL_WIDTH : INNER_WALL_WIDTH;
-
+      wallQuads.forEach((quad) => {
         ctx.beginPath();
-        ctx.moveTo(tx(wall.x1, t), ty(wall.y1, t));
-        ctx.lineTo(tx(wall.x2, t), ty(wall.y2, t));
-        ctx.stroke();
+        ctx.moveTo(tx(quad[0][0], t), ty(quad[0][1], t));
+        for (let i = 1; i < quad.length; i++) {
+          ctx.lineTo(tx(quad[i][0], t), ty(quad[i][1], t));
+        }
+        ctx.closePath();
+        ctx.fill();
       });
     }
 
-    // Boundary outline (dashed)
-    ctx.strokeStyle = WALL_COLOR;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([6, 4]);
-    ctx.strokeRect(tx(0, t), ty(0, t), ts(boundary.width, t), ts(boundary.height, t));
-    ctx.setLineDash([]);
+    // --- Exterior dimension strings ---
+    drawDimensionStrings(ctx, boundary, t, displayUnit);
 
-    // Dimension rulers on edges
-    ctx.fillStyle = '#B0A99F';
-    ctx.font = `400 10px "JetBrains Mono", monospace`;
-    ctx.textAlign = 'center';
-
-    for (let gx = 0; gx <= boundary.width; gx += 5) {
-      ctx.fillText(`${displayUnit === 'm\u00B2' ? (gx * 0.3048).toFixed(1) : gx}`, tx(gx, t), ty(-0.8, t));
-    }
-    for (let gy = 0; gy <= boundary.height; gy += 5) {
-      ctx.save();
-      ctx.translate(tx(-0.8, t), ty(gy, t));
-      ctx.rotate(-Math.PI / 2);
-      ctx.fillText(`${displayUnit === 'm\u00B2' ? (gy * 0.3048).toFixed(1) : gy}`, 0, 0);
-      ctx.restore();
-    }
-
-    // Measurement line
+    // --- Measurement tool ---
     if (showMeasure && measureStart && measureEnd) {
       const sx = tx(measureStart.x, t), sy = ty(measureStart.y, t);
       const ex = tx(measureEnd.x, t), ey = ty(measureEnd.y, t);
 
-      // Line
       ctx.strokeStyle = '#C8956C';
       ctx.lineWidth = 1.5;
       ctx.setLineDash([4, 3]);
@@ -392,7 +445,6 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Endpoints
       [{ x: sx, y: sy }, { x: ex, y: ey }].forEach(p => {
         ctx.fillStyle = '#C8956C';
         ctx.beginPath();
@@ -400,7 +452,6 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
         ctx.fill();
       });
 
-      // Distance label
       const dxFt = measureEnd.x - measureStart.x;
       const dyFt = measureEnd.y - measureStart.y;
       const distFt = Math.sqrt(dxFt * dxFt + dyFt * dyFt);
@@ -417,7 +468,89 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
     }
 
     ctx.restore();
-  }, [layout, selectedRoomId, hoveredRoom, viewOffset, scale, displayUnit, boundary, rooms, walls, doors, dragState, showMeasure, measureStart, measureEnd]);
+  }, [layout, selectedRoomId, hoveredRoom, viewOffset, scale, displayUnit, boundary, rooms, walls, doors, dragState, showMeasure, measureStart, measureEnd, showZoning]);
+
+  // --- Exterior dimension strings ---
+  function drawDimensionStrings(ctx, boundary, t, displayUnit) {
+    const offset = 2.5; // Distance from building edge.
+    const witLen = 1.0;  // Witness line length.
+
+    ctx.strokeStyle = '#B0A99F';
+    ctx.lineWidth = 0.8;
+    ctx.fillStyle = '#B0A99F';
+    ctx.font = `400 9px "JetBrains Mono", monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Bottom dimension string.
+    const bx1 = 0, bx2 = boundary.width;
+    const by = boundary.height + offset;
+    drawDimLine(ctx, tx(bx1, t), ty(by, t), tx(bx2, t), ty(by, t),
+      tx(0, t), ty(boundary.height, t), tx(0, t), ty(boundary.height + offset + witLen, t),
+      tx(boundary.width, t), ty(boundary.height, t), tx(boundary.width, t), ty(boundary.height + offset + witLen, t),
+      formatDim(bx2 - bx1, displayUnit), t);
+
+    // Right dimension string.
+    const ry1 = 0, ry2 = boundary.height;
+    const rx = boundary.width + offset;
+    drawDimLine(ctx, tx(rx, t), ty(ry1, t), tx(rx, t), ty(ry2, t),
+      tx(boundary.width, t), ty(0, t), tx(boundary.width + offset + witLen, t), ty(0, t),
+      tx(boundary.width, t), ty(boundary.height, t), tx(boundary.width + offset + witLen, t), ty(boundary.height, t),
+      formatDim(ry2 - ry1, displayUnit), t, true);
+  }
+
+  function drawDimLine(ctx, x1, y1, x2, y2, wx1, wy1, wx2, wy2, wx3, wy3, wx4, wy4, label, t, vertical) {
+    // Witness lines.
+    ctx.beginPath();
+    ctx.moveTo(wx1, wy1); ctx.lineTo(wx2, wy2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(wx3, wy3); ctx.lineTo(wx4, wy4); ctx.stroke();
+
+    // Dimension line.
+    ctx.beginPath();
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+
+    // Arrowheads.
+    const arrowSize = 3;
+    if (vertical) {
+      // Up arrow.
+      ctx.beginPath();
+      ctx.moveTo(x1, y1); ctx.lineTo(x1 - arrowSize, y1 + arrowSize); ctx.lineTo(x1 + arrowSize, y1 + arrowSize); ctx.closePath(); ctx.fill();
+      // Down arrow.
+      ctx.beginPath();
+      ctx.moveTo(x2, y2); ctx.lineTo(x2 - arrowSize, y2 - arrowSize); ctx.lineTo(x2 + arrowSize, y2 - arrowSize); ctx.closePath(); ctx.fill();
+    } else {
+      // Left arrow.
+      ctx.beginPath();
+      ctx.moveTo(x1, y1); ctx.lineTo(x1 + arrowSize, y1 - arrowSize); ctx.lineTo(x1 + arrowSize, y1 + arrowSize); ctx.closePath(); ctx.fill();
+      // Right arrow.
+      ctx.beginPath();
+      ctx.moveTo(x2, y2); ctx.lineTo(x2 - arrowSize, y2 - arrowSize); ctx.lineTo(x2 - arrowSize, y2 + arrowSize); ctx.closePath(); ctx.fill();
+    }
+
+    // Label.
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    ctx.save();
+    ctx.fillStyle = '#7A7570';
+    ctx.font = `400 9px "JetBrains Mono", monospace`;
+    if (vertical) {
+      ctx.translate(mx + 8, my);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, 0, 0);
+    } else {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(label, mx, my - 3);
+    }
+    ctx.restore();
+  }
+
+  function formatDim(feet, displayUnit) {
+    if (displayUnit === 'm\u00B2') return (feet * 0.3048).toFixed(1) + 'm';
+    return feet.toFixed(0) + '\'';
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -445,7 +578,7 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
 
   useEffect(() => { draw(); }, [draw]);
 
-  // Keyboard shortcuts for 2D view
+  // Keyboard shortcuts.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -459,6 +592,9 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
         setShowMeasure(false);
         setMeasureStart(null);
         setMeasureEnd(null);
+      }
+      if (e.key === 'z' || e.key === 'Z') {
+        setShowZoning(v => !v);
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedRoomId) {
         onSelectRoom(null);
@@ -475,7 +611,6 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
     const mx = clientX - rect.left;
     const my = clientY - rect.top;
     const t = computeTransform(canvas, boundary, scale, viewOffset);
-
     const roomX = (mx - t.ox) / t.finalScale;
     const roomY = (my - t.oy) / t.finalScale;
 
@@ -498,7 +633,6 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
     const planX = (mx - t.ox) / t.finalScale;
     const planY = (my - t.oy) / t.finalScale;
 
-    // Measurement mode
     if (showMeasure) {
       if (!measureStart) {
         setMeasureStart({ x: planX, y: planY });
@@ -513,11 +647,6 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
     const room = screenToRoom(e.clientX, e.clientY);
     if (room) {
       onSelectRoom(room.id === selectedRoomId ? null : room.id);
-      const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const t = computeTransform(canvas, boundary, scale, viewOffset);
       const roomX = (mx - t.ox) / t.finalScale;
       const roomY = (my - t.oy) / t.finalScale;
       const offsetX = roomX - room.x;
@@ -528,7 +657,7 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
       isPanning.current = true;
       lastMouse.current = { x: e.clientX, y: e.clientY };
     }
-  }, [screenToRoom, onSelectRoom, selectedRoomId, boundary, scale, viewOffset]);
+  }, [screenToRoom, onSelectRoom, selectedRoomId, boundary, scale, viewOffset, showMeasure, measureStart]);
 
   const handleMouseMove = useCallback((e) => {
     if (isPanning.current) {
@@ -539,7 +668,6 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
       return;
     }
 
-    // Measurement mode - update end point
     if (showMeasure && measureStart) {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -561,7 +689,7 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
         setDragState(prev => ({ ...prev, moved: true }));
       }
     }
-  }, [screenToRoom, dragState]);
+  }, [screenToRoom, dragState, boundary, scale, viewOffset, showMeasure, measureStart]);
 
   const handleMouseUp = useCallback((e) => {
     if (isPanning.current) {
@@ -574,7 +702,6 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
       const t = computeTransform(canvas, boundary, scale, viewOffset);
-
       const roomX = (mx - t.ox) / t.finalScale;
       const roomY = (my - t.oy) / t.finalScale;
 
@@ -613,10 +740,19 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
 
   const handleDoubleClick = useCallback((e) => {
     const room = screenToRoom(e.clientX, e.clientY);
-    if (room) {
-      onSelectRoom(room.id);
-    }
+    if (room) onSelectRoom(room.id);
   }, [screenToRoom, onSelectRoom]);
+
+  // Bound natively rather than via onWheel so the listener can be non-passive
+  // and preventDefault the page scroll. Must sit below handleWheel's
+  // declaration — a dep array is evaluated during render, so referencing it
+  // any earlier hits the temporal dead zone.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheel);
+  }, [handleWheel]);
 
   return (
     <canvas
@@ -628,7 +764,6 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas({ layout, selectedRo
       onMouseUp={handleMouseUp}
       onDoubleClick={handleDoubleClick}
       onMouseLeave={() => { setHoveredRoom(null); setDragState(null); isPanning.current = false; }}
-      onWheel={handleWheel}
     />
   );
 });
